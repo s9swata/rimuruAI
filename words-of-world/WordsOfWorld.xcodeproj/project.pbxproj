@@ -1,0 +1,425 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0C23A9A21D8D295D894902BB /* UserNotifications.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4DC6F25F26B8165C9D29E735 /* UserNotifications.framework */; };
+		836CABB862AFC2A9BC83007C /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF9284A62D28A0EC8B5ACD19 /* main.swift */; };
+		B0E96771312BA16784CFDF6F /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D82D8F8F04B476DA0D15E066 /* AppDelegate.swift */; };
+		B8EF730ED1D97A138732D1F3 /* Carbon.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 20236F80B9EA430A38EC30F7 /* Carbon.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		B12EE73F79831AC793FF0399 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 08A1A478D8BB3D58DB9A614C /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C3F7CE8B39E0E49CB27C3741;
+			remoteInfo = WordsOfWorld;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		20236F80B9EA430A38EC30F7 /* Carbon.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Carbon.framework; path = System/Library/Frameworks/Carbon.framework; sourceTree = SDKROOT; };
+		31C861595597FD3C323F04EB /* WordsOfWorld.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WordsOfWorld.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		3462F6A418310F7D67D2B74E /* WordsOfWorldTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WordsOfWorldTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		4DC6F25F26B8165C9D29E735 /* UserNotifications.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UserNotifications.framework; path = System/Library/Frameworks/UserNotifications.framework; sourceTree = SDKROOT; };
+		6E058FE7EE07C3315D646662 /* WordsOfWorld.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = WordsOfWorld.entitlements; sourceTree = "<group>"; };
+		91C34A5360B202721AF13C81 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		D82D8F8F04B476DA0D15E066 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		EF9284A62D28A0EC8B5ACD19 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		88ADF307565D908A5CEAA574 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B8EF730ED1D97A138732D1F3 /* Carbon.framework in Frameworks */,
+				0C23A9A21D8D295D894902BB /* UserNotifications.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		71EC789F00FE7724FAA69803 = {
+			isa = PBXGroup;
+			children = (
+				C5F1EB67B0E8AA56E1D397E2 /* WordsOfWorld */,
+				A12E665E013837B88F84B145 /* WordsOfWorldTests */,
+				FC5B81B722FA620A7A182DBA /* Frameworks */,
+				BB197F506A4E05B1186DBDD8 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A12E665E013837B88F84B145 /* WordsOfWorldTests */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = WordsOfWorldTests;
+			sourceTree = "<group>";
+		};
+		BB197F506A4E05B1186DBDD8 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				31C861595597FD3C323F04EB /* WordsOfWorld.app */,
+				3462F6A418310F7D67D2B74E /* WordsOfWorldTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		C5F1EB67B0E8AA56E1D397E2 /* WordsOfWorld */ = {
+			isa = PBXGroup;
+			children = (
+				D82D8F8F04B476DA0D15E066 /* AppDelegate.swift */,
+				91C34A5360B202721AF13C81 /* Info.plist */,
+				EF9284A62D28A0EC8B5ACD19 /* main.swift */,
+				6E058FE7EE07C3315D646662 /* WordsOfWorld.entitlements */,
+			);
+			path = WordsOfWorld;
+			sourceTree = "<group>";
+		};
+		FC5B81B722FA620A7A182DBA /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				20236F80B9EA430A38EC30F7 /* Carbon.framework */,
+				4DC6F25F26B8165C9D29E735 /* UserNotifications.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		B3F32D4128C0F5D1CC87103A /* WordsOfWorldTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9C1DB3BA5BD24846AD67A16F /* Build configuration list for PBXNativeTarget "WordsOfWorldTests" */;
+			buildPhases = (
+				89437F0ADB9083062BAAF970 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				D053548B012A9A15D1AAE198 /* PBXTargetDependency */,
+			);
+			name = WordsOfWorldTests;
+			packageProductDependencies = (
+			);
+			productName = WordsOfWorldTests;
+			productReference = 3462F6A418310F7D67D2B74E /* WordsOfWorldTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		C3F7CE8B39E0E49CB27C3741 /* WordsOfWorld */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A7F2DD445F6A20F7051CC093 /* Build configuration list for PBXNativeTarget "WordsOfWorld" */;
+			buildPhases = (
+				551D97099A589FC531EAFE4C /* Sources */,
+				88ADF307565D908A5CEAA574 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = WordsOfWorld;
+			packageProductDependencies = (
+			);
+			productName = WordsOfWorld;
+			productReference = 31C861595597FD3C323F04EB /* WordsOfWorld.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		08A1A478D8BB3D58DB9A614C /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					C3F7CE8B39E0E49CB27C3741 = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = C04BE186352B747458A6BEEF /* Build configuration list for PBXProject "WordsOfWorld" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 71EC789F00FE7724FAA69803;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = BB197F506A4E05B1186DBDD8 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				C3F7CE8B39E0E49CB27C3741 /* WordsOfWorld */,
+				B3F32D4128C0F5D1CC87103A /* WordsOfWorldTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		551D97099A589FC531EAFE4C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B0E96771312BA16784CFDF6F /* AppDelegate.swift in Sources */,
+				836CABB862AFC2A9BC83007C /* main.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		89437F0ADB9083062BAAF970 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		D053548B012A9A15D1AAE198 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C3F7CE8B39E0E49CB27C3741 /* WordsOfWorld */;
+			targetProxy = B12EE73F79831AC793FF0399 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		6BA54031E79A19E5CBF7E6C0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		736F75EB0070BBECE021A324 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		86A51BF11D6C815A02BA4151 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rimuruai.WordsOfWorldTests;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.9;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/WordsOfWorld.app/Contents/MacOS/WordsOfWorld";
+			};
+			name = Debug;
+		};
+		CCBE6084C4940A9AD341B957 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = WordsOfWorld/WordsOfWorld.entitlements;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = WordsOfWorld/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.rimuruai.words-of-world";
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.9;
+			};
+			name = Release;
+		};
+		F0C761CDEB7B311356CBF143 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = WordsOfWorld/WordsOfWorld.entitlements;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = WordsOfWorld/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.rimuruai.words-of-world";
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.9;
+			};
+			name = Debug;
+		};
+		FD64AB319F3D22172248374B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rimuruai.WordsOfWorldTests;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.9;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/WordsOfWorld.app/Contents/MacOS/WordsOfWorld";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		9C1DB3BA5BD24846AD67A16F /* Build configuration list for PBXNativeTarget "WordsOfWorldTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				86A51BF11D6C815A02BA4151 /* Debug */,
+				FD64AB319F3D22172248374B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		A7F2DD445F6A20F7051CC093 /* Build configuration list for PBXNativeTarget "WordsOfWorld" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F0C761CDEB7B311356CBF143 /* Debug */,
+				CCBE6084C4940A9AD341B957 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		C04BE186352B747458A6BEEF /* Build configuration list for PBXProject "WordsOfWorld" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6BA54031E79A19E5CBF7E6C0 /* Debug */,
+				736F75EB0070BBECE021A324 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 08A1A478D8BB3D58DB9A614C /* Project object */;
+}
