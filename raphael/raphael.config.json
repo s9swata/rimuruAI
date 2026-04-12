@@ -1,0 +1,19 @@
+{
+  "persona": { "address": "sir", "tone": "jarvis", "verbosity": "terse" },
+  "trustLevel": "balanced",
+  "tools": {
+    "gmail.sendEmail":            { "requiresApproval": true },
+    "gmail.draftEmail":           { "requiresApproval": false },
+    "calendar.createEvent":       { "requiresApproval": true },
+    "calendar.listEvents":        { "requiresApproval": false },
+    "calendar.checkAvailability": { "requiresApproval": false },
+    "x.getTimeline":              { "requiresApproval": false },
+    "x.getMentions":              { "requiresApproval": false },
+    "x.searchTweets":             { "requiresApproval": false },
+    "files.searchFiles":          { "requiresApproval": false },
+    "files.readFile":             { "requiresApproval": false },
+    "memory.query":               { "requiresApproval": false }
+  },
+  "watchedFolders": [],
+  "hotkey": "Super+Shift+Space"
+}
