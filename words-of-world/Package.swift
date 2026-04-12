@@ -1,5 +1,8 @@
 // swift-tools-version: 5.10
 import PackageDescription
+import Foundation
+
+let infoPlistPath = Context.packageDirectory + "/WordsOfWorld/Info.plist"
 
 let package = Package(
     name: "WordsOfWorld",
@@ -11,7 +14,13 @@ let package = Package(
             exclude: ["Info.plist", "WordsOfWorld.entitlements"],
             linkerSettings: [
                 .linkedFramework("Carbon"),
-                .linkedFramework("UserNotifications")
+                .linkedFramework("UserNotifications"),
+                .unsafeFlags([
+                    "-Xlinker", "-sectcreate",
+                    "-Xlinker", "__TEXT",
+                    "-Xlinker", "__info_plist",
+                    "-Xlinker", infoPlistPath
+                ])
             ]
         ),
         .testTarget(
