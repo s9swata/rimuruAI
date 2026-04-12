@@ -1,0 +1,34 @@
+{
+  "productName": "Raphael",
+  "version": "0.1.0",
+  "identifier": "ai.rimuru.raphael",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run frontend:dev",
+    "beforeBuildCommand": "npm run frontend:dev"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Raphael",
+        "width": 420,
+        "height": 680,
+        "resizable": false,
+        "decorations": false,
+        "center": true,
+        "visible": false
+      }
+    ],
+    "trayIcon": {
+      "iconPath": "icons/icon.png",
+      "iconAsTemplate": true
+    },
+    "security": { "csp": null }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/icon.png"]
+  }
+}
