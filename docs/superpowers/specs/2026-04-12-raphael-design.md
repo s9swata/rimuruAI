@@ -13,8 +13,8 @@ Raphael is a multi-modal, Jarvis-inspired personal AI agent built for any OS (Wi
 - **Frontend**: React + TypeScript (Vite)
 - **Agent logic**: TypeScript (runs in renderer, calls Groq REST API directly)
 - **Cross-platform**: Windows, macOS, Linux — Tauri's Rust core abstracts all OS differences
-- **API keys**: Stored in OS credential store via Tauri's secure storage APIs (Keychain / Credential Manager / libsecret)
-- **No sidecar**: All logic is TypeScript; Rust handles only tray, hotkey, window management, file system access, and credential storage
+- **API keys**: Stored in an AES-256-GCM encrypted JSON file in the app's data directory. Encryption key derived from machine UUID + hardcoded app salt — no OS prompts ever, encrypted at rest, machine-bound
+- **No sidecar**: All logic is TypeScript; Rust handles only tray, hotkey, window management, secure store, and file system access
 
 ---
 
@@ -55,7 +55,7 @@ The orchestrator returns structured JSON: `{ model: "llama-3.3-70b", tools: ["gm
 3. **Input bar** — single-line, expands to multiline; `Enter` sends, `Shift+Enter` newlines; `/` hint shows slash commands (`/email`, `/calendar`, `/files`, `/memory`)
 
 ### Onboarding
-First launch opens a setup flow: Groq API key, Google OAuth, X.com Bearer token, watched folder paths, hotkey binding. All stored in the OS credential store via Tauri's secure storage APIs (Keychain on macOS, Credential Manager on Windows, libsecret on Linux).
+First launch opens a setup flow: Groq API key, Google OAuth, X.com Bearer token, watched folder paths, hotkey binding. All sensitive values stored in an AES-256-GCM encrypted JSON file in the app data directory — no OS prompts, no keychain dependency.
 
 ---
 
@@ -173,7 +173,7 @@ The graph grows continuously: every conversation adds new nodes and edges, every
 rimuruAI/
 ├── words-of-world/       # existing menu bar voice-to-text app
 └── raphael/              # this project
-    ├── src-tauri/        # Rust — tray, hotkey, window, credential store, file watch (cross-platform)
+    ├── src-tauri/        # Rust — tray, hotkey, window, AES secure store, file watch (cross-platform)
     ├── src/              # React + TypeScript
     │   ├── components/   # UI components (ChatArea, ToolCard, EmailComposer, etc.)
     │   ├── services/     # Integration modules (gmail, calendar, x, files, memory)
