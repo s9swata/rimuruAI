@@ -7,7 +7,7 @@ const GIST_ID = "abc123";
 const PAT = "ghp_test";
 
 const mockFetch = vi.fn();
-global.fetch = mockFetch;
+globalThis.fetch = mockFetch;
 
 beforeEach(() => mockFetch.mockReset());
 
