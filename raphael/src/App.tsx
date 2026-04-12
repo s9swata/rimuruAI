@@ -13,6 +13,69 @@ import { streamChat } from "./agent/groq";
 import { buildSystemPrompt } from "./agent/prompts";
 import { createServices } from "./services";
 
+function DebugPanel() {
+  const [logs, setLogs] = useState<string[]>([]);
+  const [show, setShow] = useState(false);
+
+  useEffect(() => {
+    if (show) {
+      // Collect console logs
+      const interval = setInterval(() => {
+        const logsJson = localStorage.getItem("raphael_logs") || "[]";
+        try {
+          setLogs(JSON.parse(logsJson));
+        } catch {}
+      }, 500);
+      return () => clearInterval(interval);
+    }
+  }, [show]);
+
+  if (!show) {
+    return (
+      <button
+        onClick={() => setShow(true)}
+        style={{ position: "fixed", bottom: 4, right: 4, opacity: 0.3, fontSize: 10, padding: "2px 4px" }}
+      >
+        Logs
+      </button>
+    );
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.9)", padding: 20, overflow: "auto", zIndex: 9999, color: "#0f0", fontSize: 11 }}>
+      <button onClick={() => setShow(false)} style={{ marginBottom: 10 }}>Close</button>
+      <button onClick={() => localStorage.setItem("raphael_logs", "[]")} style={{ marginLeft: 10 }}>Clear</button>
+      <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
+        {logs.map((l, i) => (
+          <div key={i} style={{ color: l.includes("error") || l.includes("Error") ? "#f55" : l.includes("warn") ? "#ff5" : "#0f0" }}>
+            {l}
+          </div>
+        ))}
+      </pre>
+    </div>
+  );
+}
+
+// Inject console.log into localStorage for DebugPanel
+const originalLog = console.log;
+const originalError = console.error;
+console.log = (...args) => {
+  const msg = args.map(a => typeof a === "object" ? JSON.stringify(a) : String(a)).join(" ");
+  originalLog(...args);
+  const logs = JSON.parse(localStorage.getItem("raphael_logs") || "[]");
+  logs.push(`[LOG] ${msg}`);
+  if (logs.length > 100) logs.shift();
+  localStorage.setItem("raphael_logs", JSON.stringify(logs));
+};
+console.error = (...args) => {
+  const msg = args.map(a => typeof a === "object" ? JSON.stringify(a) : String(a)).join(" ");
+  originalError(...args);
+  const logs = JSON.parse(localStorage.getItem("raphael_logs") || "[]");
+  logs.push(`[ERROR] ${msg}`);
+  if (logs.length > 100) logs.shift();
+  localStorage.setItem("raphael_logs", JSON.stringify(logs));
+};
+
 export default function App() {
   const [ready, setReady] = useState<boolean | null>(null);
   const [config, setConfig] = useState<RaphaelConfig>(DEFAULT_CONFIG);
@@ -20,10 +83,18 @@ export default function App() {
   const { state, dispatch: chatDispatch } = useChatStore();
 
   useEffect(() => {
-    invoke<string | null>("get_secret", { key: "groq_api_key" }).then((key) => {
-      setReady(!!key);
-    });
-    loadConfig().then(setConfig);
+    invoke<string | null>("get_secret", { key: "groq_api_key" })
+      .then((key) => {
+        console.log("Groq key found:", !!key);
+        setReady(!!key);
+      })
+      .catch((e) => {
+        console.error("Failed to get secret:", e);
+        setReady(false);
+      });
+loadConfig()
+      .then(setConfig)
+      .catch((e) => console.error("Failed to load config:", e));
   }, []);
 
   const history = state.items
@@ -43,10 +114,11 @@ export default function App() {
         const cardId = crypto.randomUUID();
         chatDispatch({ type: "ADD_TOOL", card: { id: cardId, tool: plan.tool, status: "running" } });
 
-        if (plan.tool === "gmail.draftEmail") {
+        if (plan.tool === "gmail.draftEmail" || plan.tool === "gmail.sendEmail") {
           const draft = plan.params as unknown as { to?: string; subject?: string; body?: string };
           chatDispatch({ type: "ADD_EMAIL", draft: { id: crypto.randomUUID(), to: draft.to ?? "", subject: draft.subject ?? "", body: draft.body ?? "" } });
           chatDispatch({ type: "UPDATE_TOOL", id: cardId, status: "done", result: "Draft ready for review" });
+          toolContext = `Email composer opened. To: "${draft.to ?? ""}", Subject: "${draft.subject ?? ""}", Body: "${draft.body ?? ""}". The compose window is visible — tell the user to review and hit Send.`;
         } else {
           const needsApproval = requiresApprovalCheck(plan.tool, config);
           if (needsApproval) {
@@ -87,6 +159,7 @@ export default function App() {
         () => chatDispatch({ type: "FINISH_STREAM", id: replyId }),
       );
     } catch (e) {
+      console.error("Chat error:", e);
       const errId = crypto.randomUUID();
       chatDispatch({ type: "ADD_MESSAGE", msg: { id: errId, role: "assistant", content: `Error: ${String(e)}` } });
     } finally {
@@ -94,11 +167,12 @@ export default function App() {
     }
   }, [config, history, chatDispatch]);
 
-  if (ready === null) return null;
+if (ready === null) return null;
   if (!ready) return <Onboarding onComplete={() => setReady(true)} />;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
+      <DebugPanel />
       <div style={{ height: 2, background: thinking ? "#f59e0b" : "var(--accent)", flexShrink: 0, transition: "background 0.3s" }} />
       <div style={{ padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid #1e1e2e" }}>
         <span style={{ letterSpacing: "0.2em", fontSize: 11, fontWeight: 700 }}>RAPHAEL</span>

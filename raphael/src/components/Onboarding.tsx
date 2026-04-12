@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-
 interface Props { onComplete: () => void; }
 
 type Step = "groq" | "google" | "x" | "folders" | "done";
@@ -72,7 +71,9 @@ export default function Onboarding({ onComplete }: Props) {
         <SecretInput label="Google Client ID" value={googleClientId} onChange={setGoogleClientId} />
         <SecretInput label="Google Client Secret" value={googleClientSecret} onChange={setGoogleClientSecret} />
         <HelpText>Create an OAuth 2.0 app at console.cloud.google.com (testing mode, free)</HelpText>
-        <button onClick={saveGoogle} style={btnStyle}>Next</button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={saveGoogle} style={btnStyle}>Next</button>
+        </div>
       </>}
 
       {step === "x" && <>
