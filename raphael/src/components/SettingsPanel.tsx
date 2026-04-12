@@ -96,20 +96,23 @@ function ApiKeysSection() {
   const [gmailAddress, setGmailAddress] = useState("");
   const [gmailPassword, setGmailPassword] = useState("");
   const [githubPat, setGithubPat] = useState("");
+  const [serperKey, setSerperKey] = useState("");
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     (async () => {
-      const [groq, gmail, pass, gh] = await Promise.all([
+      const [groq, gmail, pass, gh, serper] = await Promise.all([
         invoke<string | null>("get_secret", { key: "groq_api_key" }),
         invoke<string | null>("get_secret", { key: "gmail_address" }),
         invoke<string | null>("get_secret", { key: "gmail_app_password" }),
         invoke<string | null>("get_secret", { key: "github_pat" }),
+        invoke<string | null>("get_secret", { key: "serper_api_key" }),
       ]);
       if (groq) setGroqKey(groq);
       if (gmail) setGmailAddress(gmail);
       if (pass) setGmailPassword(pass);
       if (gh) setGithubPat(gh);
+      if (serper) setSerperKey(serper);
     })();
   }, []);
 
@@ -118,6 +121,7 @@ function ApiKeysSection() {
     if (gmailAddress) await invoke("set_secret", { key: "gmail_address", value: gmailAddress });
     if (gmailPassword) await invoke("set_secret", { key: "gmail_app_password", value: gmailPassword });
     if (githubPat) await invoke("set_secret", { key: "github_pat", value: githubPat });
+    if (serperKey) await invoke("set_secret", { key: "serper_api_key", value: serperKey });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   }
@@ -140,6 +144,10 @@ function ApiKeysSection() {
       <div>
         <FieldLabel>GitHub PAT (optional — calendar cloud sync)</FieldLabel>
         <TextInput type="password" value={githubPat} onChange={setGithubPat} placeholder="ghp_..." />
+      </div>
+      <div>
+        <FieldLabel>Serper API Key (optional — web search)</FieldLabel>
+        <TextInput type="password" value={serperKey} onChange={setSerperKey} placeholder="Get from serper.dev" />
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <SaveButton onClick={handleSave} />

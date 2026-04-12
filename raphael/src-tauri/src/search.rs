@@ -1,4 +1,13 @@
+use crate::secure_store::SecureStore;
+use dirs::data_dir;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+
+fn store_dir() -> PathBuf {
+    data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("raphael")
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SearchResult {
@@ -26,10 +35,11 @@ pub struct SearchResponse {
 
 #[tauri::command]
 pub async fn search_web(query: String) -> Result<SearchResponse, String> {
-    let api_key = std::env::var("SERPER_API_KEY").unwrap_or_else(|_| {
-        // Fallback: try to get from secure storage via a default key file
-        "0a6df3f77aac73e19fe354c57afe357b85b90107".to_string()
-    });
+    // Get Serper API key from secure store
+    let store = SecureStore::new(store_dir())?;
+    let api_key = store
+        .get("serper_api_key")?
+        .ok_or_else(|| "Serper API key not configured. Add it in Settings > API Keys.")?;
 
     let client = reqwest::Client::new();
 
