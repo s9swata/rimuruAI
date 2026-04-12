@@ -32,6 +32,7 @@ export async function orchestrate(
     
     const { object } = await generateObject({
       model: groq(MODELS.orchestrator),
+      providerOptions: { groq: { structuredOutputs: false } },
       messages,
       schema: z.object({
         model: z.enum(["fast", "powerful"]).describe("Which model tier to use for the user response"),
