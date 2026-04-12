@@ -47,5 +47,6 @@ export async function createGist(pat: string, state: CalendarState): Promise<str
   });
   if (!res.ok) throw new Error(`Gist create failed: ${res.status}`);
   const data = await res.json();
+  if (!data.id) throw new Error("Gist create returned no id");
   return data.id as string;
 }

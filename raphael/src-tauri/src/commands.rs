@@ -107,9 +107,14 @@ pub fn send_email(
 ) -> Result<(), String> {
     log_to_file(&format!("send_email: from={} to={} subject={}", from, to, subject));
 
-    let app_password = SecureStore::new(store_dir())?
+    let store = SecureStore::new(store_dir())?;
+    let app_password = store
         .get("gmail_app_password")?
         .ok_or_else(|| "Gmail app password not configured".to_string())?;
+    // Use the stored account address as SMTP auth username, not `from` which may be an alias
+    let auth_user = store
+        .get("gmail_address")?
+        .ok_or_else(|| "Gmail address not configured".to_string())?;
 
     let email = Message::builder()
         .from(from.parse().map_err(|e| format!("Invalid from address: {e}"))?)
@@ -119,7 +124,7 @@ pub fn send_email(
         .body(body)
         .map_err(|e| e.to_string())?;
 
-    let creds = Credentials::new(from.clone(), app_password);
+    let creds = Credentials::new(auth_user, app_password);
 
     let mailer = SmtpTransport::relay("smtp.gmail.com")
         .map_err(|e| e.to_string())?

@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { ServiceMap } from "../agent/dispatcher";
+import { calendarService } from "../calendar/store";
 
 export async function createServices(): Promise<ServiceMap> {
   return {
@@ -26,11 +27,7 @@ export async function createServices(): Promise<ServiceMap> {
         }
       },
     },
-    calendar: {
-      listEvents: async () => ({ success: true, data: [] }),
-      createEvent: async () => ({ success: true, data: {} }),
-      checkAvailability: async () => ({ success: true, data: [] }),
-    },
+    calendar: calendarService,
     x: {
       getTimeline: async () => ({ success: true, data: [] }),
       getMentions: async () => ({ success: true, data: [] }),
