@@ -123,7 +123,7 @@ loadConfig()
         const cardId = crypto.randomUUID();
         chatDispatch({ type: "ADD_TOOL", card: { id: cardId, tool: plan.tool, status: "running" } });
 
-        if (plan.tool === "gmail.draftEmail" || plan.tool === "gmail.sendEmail") {
+        if (plan.tool === "gmail.draftEmail") {
           const draft = plan.params as unknown as { to?: string; subject?: string; body?: string };
           chatDispatch({ type: "ADD_EMAIL", draft: { id: crypto.randomUUID(), to: draft.to ?? "", subject: draft.subject ?? "", body: draft.body ?? "" } });
           chatDispatch({ type: "UPDATE_TOOL", id: cardId, status: "done", result: "Draft ready for review" });

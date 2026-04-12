@@ -38,8 +38,9 @@ Search tool (search.query):
 - Returns: top 10 organic search results with title, link, snippet
 
 Email rules:
-- ALWAYS use gmail.draftEmail (never gmail.sendEmail) when the user wants to compose or send an email — the UI will let them review and send.
-- params must include: { "to": "<name or email>", "subject": "<subject or empty string>", "body": "<body or empty string>" }`;
+- Use gmail.draftEmail to draft emails for the user to review.
+- Use gmail.sendEmail ONLY when the user explicitly commands you to send the email directly (e.g. "send it", "send the email").
+- Both tools take params: { "to": "<name or email>", "subject": "<subject or empty string>", "body": "<body or empty string>" }`;
   }
 
   const toneLine = tone === "jarvis"
