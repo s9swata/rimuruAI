@@ -40,5 +40,19 @@ export async function createServices(): Promise<ServiceMap> {
     memory: {
       query: async () => ({ success: true, data: {} }),
     },
+    search: {
+      query: async (p) => {
+        const params = p as { query?: string };
+        try {
+          const results = await invoke<{
+            organic: Array<{ title: string; link: string; snippet: string; position: number }>;
+            knowledge_graph?: { title: string; description?: string; website?: string };
+          }>("search_web", { query: params.query ?? "" });
+          return { success: true, data: results };
+        } catch (e) {
+          return { success: false, error: String(e) };
+        }
+      },
+    },
   };
 }

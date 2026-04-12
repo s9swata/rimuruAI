@@ -1,5 +1,6 @@
 mod commands;
 mod secure_store;
+mod search;
 
 use tauri::{
     menu::{Menu, MenuItem},
@@ -58,6 +59,7 @@ pub fn run() {
             commands::send_email,
             commands::load_config,
             commands::save_config,
+            search::search_web,
         ])
         .run(tauri::generate_context!())
         .expect("error while running raphael");

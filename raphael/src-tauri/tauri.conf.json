@@ -14,10 +14,15 @@
         "title": "Raphael",
         "width": 420,
         "height": 680,
-        "resizable": false,
-        "decorations": false,
+        "minWidth": 360,
+        "minHeight": 500,
+        "resizable": true,
+        "maximizable": true,
+        "minimizable": true,
+        "fullscreen": false,
+        "decorations": true,
         "center": true,
-        "visible": false
+        "visible": true
       }
     ],
     "trayIcon": {

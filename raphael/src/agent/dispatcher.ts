@@ -34,6 +34,9 @@ export type ServiceMap = {
   memory: {
     query: (params: Record<string, unknown>) => Promise<ToolResult>;
   };
+  search: {
+    query: (params: Record<string, unknown>) => Promise<ToolResult>;
+  };
 };
 
 export async function dispatch(
@@ -52,7 +55,7 @@ export async function dispatch(
     return { success: false, error: `Unknown service: ${service}` };
   }
   
-  const methodFn = serviceObj[method as keyof typeof serviceObj];
+  const methodFn = (serviceObj as Record<string, unknown>)[method];
   if (typeof methodFn !== "function") {
     return { success: false, error: `Unknown method: ${method}` };
   }

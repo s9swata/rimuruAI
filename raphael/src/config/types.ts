@@ -33,6 +33,7 @@ export const DEFAULT_CONFIG: RaphaelConfig = {
     "files.searchFiles":            { requiresApproval: false },
     "files.readFile":               { requiresApproval: false },
     "memory.query":                 { requiresApproval: false },
+    "search.query":                 { requiresApproval: false },
   },
   watchedFolders: [],
   hotkey: "Super+Shift+Space",

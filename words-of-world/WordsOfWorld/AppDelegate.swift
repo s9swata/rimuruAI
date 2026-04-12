@@ -114,6 +114,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func processRecording(url: URL) {
         Task {
             do {
+                // Check for significant audio (voice activity detection)
+                if !RecorderManager.hasSignificantAudio() {
+                    NSLog("[WordsOfWorld] Silent audio detected, skipping transcription")
+                    try? FileManager.default.removeItem(at: url)
+                    await MainActor.run {
+                        menuBar.setState(.idle)
+                    }
+                    return
+                }
+                
                 let audioData = try Data(contentsOf: url)
 
                 let transcript = try await GroqTranscriber.transcribe(audioData: audioData, fileName: url.lastPathComponent)

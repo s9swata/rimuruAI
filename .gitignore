@@ -1,6 +1,9 @@
 # macOS
 .DS_Store
 
+# Rust build artifacts
+raphael/src-tauri/target/
+
 # Swift Package Manager
 words-of-world/.build/
 

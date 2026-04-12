@@ -11,7 +11,7 @@ let package = Package(
         .executableTarget(
             name: "WordsOfWorld",
             path: "WordsOfWorld",
-            exclude: ["Info.plist", "WordsOfWorld.entitlements"],
+            exclude: ["Info.plist", "WordsOfWorld.entitlements", "graphify-out"],
             linkerSettings: [
                 .linkedFramework("Carbon"),
                 .linkedFramework("UserNotifications"),
