@@ -3,17 +3,18 @@ _Date: 2026-04-12_
 
 ## Overview
 
-Raphael is a multi-modal, Jarvis-inspired personal AI agent for macOS. It lives in the menu bar, can be summoned with a hotkey, and acts as a persistent intelligent assistant with access to email, calendar, X.com, local files, and a long-term knowledge graph memory. It runs entirely on Groq Cloud free-tier models.
+Raphael is a multi-modal, Jarvis-inspired personal AI agent built for any OS (Windows, macOS, Linux). It lives in the system tray, can be summoned with a hotkey, and acts as a persistent intelligent assistant with access to email, calendar, X.com, local files, and a long-term knowledge graph memory. It runs entirely on Groq Cloud free-tier models. The Tauri + Rust stack was chosen specifically to enable this cross-platform reach while keeping the binary lightweight.
 
 ---
 
 ## 1. Platform & Stack
 
-- **Shell**: Tauri v2 (Rust for system-level concerns, web renderer for UI)
+- **Shell**: Tauri v2 (Rust for cross-platform system-level concerns, web renderer for UI)
 - **Frontend**: React + TypeScript (Vite)
 - **Agent logic**: TypeScript (runs in renderer, calls Groq REST API directly)
-- **API keys**: Stored in OS keychain via Tauri's secure storage APIs
-- **No sidecar**: All logic is TypeScript; Rust handles only tray, hotkey, window management, file system access, and keychain
+- **Cross-platform**: Windows, macOS, Linux — Tauri's Rust core abstracts all OS differences
+- **API keys**: Stored in OS credential store via Tauri's secure storage APIs (Keychain / Credential Manager / libsecret)
+- **No sidecar**: All logic is TypeScript; Rust handles only tray, hotkey, window management, file system access, and credential storage
 
 ---
 
@@ -34,7 +35,7 @@ The orchestrator returns structured JSON: `{ model: "llama-3.3-70b", tools: ["gm
 ## 3. UI & UX
 
 ### Persistent presence
-- Menu bar icon (minimal glyph — stylized "R" or geometric eye)
+- System tray icon (minimal glyph — stylized "R" or geometric eye); works on Windows, macOS, and Linux
 - States: hollow (idle), filled (active/thinking), amber (waiting for approval)
 - Clicking the icon opens the main window
 
@@ -54,7 +55,7 @@ The orchestrator returns structured JSON: `{ model: "llama-3.3-70b", tools: ["gm
 3. **Input bar** — single-line, expands to multiline; `Enter` sends, `Shift+Enter` newlines; `/` hint shows slash commands (`/email`, `/calendar`, `/files`, `/memory`)
 
 ### Onboarding
-First launch opens a setup flow: Groq API key, Google OAuth, X.com Bearer token, watched folder paths, hotkey binding. All stored in OS keychain.
+First launch opens a setup flow: Groq API key, Google OAuth, X.com Bearer token, watched folder paths, hotkey binding. All stored in the OS credential store via Tauri's secure storage APIs (Keychain on macOS, Credential Manager on Windows, libsecret on Linux).
 
 ---
 
@@ -172,7 +173,7 @@ The graph grows continuously: every conversation adds new nodes and edges, every
 rimuruAI/
 ├── words-of-world/       # existing menu bar voice-to-text app
 └── raphael/              # this project
-    ├── src-tauri/        # Rust — tray, hotkey, window, keychain, file watch
+    ├── src-tauri/        # Rust — tray, hotkey, window, credential store, file watch (cross-platform)
     ├── src/              # React + TypeScript
     │   ├── components/   # UI components (ChatArea, ToolCard, EmailComposer, etc.)
     │   ├── services/     # Integration modules (gmail, calendar, x, files, memory)
@@ -187,7 +188,7 @@ rimuruAI/
 ## Out of Scope (v1)
 
 - Voice input (planned for later, words-of-world patterns can be reused)
-- Outlook / Apple Mail / Apple Calendar
+- Outlook / additional email & calendar providers
 - X.com write access (post, DM)
 - Multi-user / cloud sync
 - Mobile
