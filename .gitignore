@@ -1,0 +1,24 @@
+# macOS
+.DS_Store
+
+# Swift Package Manager
+words-of-world/.build/
+
+# Claude Code
+.claude/
+.agents/
+skills-lock.json
+
+# Graphify output
+graphify-out/
+words-of-world/graphify-out/
+words-of-world/WordsOfWorld/graphify-out/
+.graphify_*.json
+.graphify_python
+.graphify_uncached.txt
+
+# R history (docs tooling)
+words-of-world/docs/superpowers/specs/.Rhistory
+
+# Local scratch
+main
