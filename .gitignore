@@ -25,3 +25,9 @@ words-of-world/docs/superpowers/specs/.Rhistory
 
 # Local scratch
 main
+
+# Raw files (downloaded research, not meant to be versioned)
+raw/
+
+# Build/dist outputs
+words-of-world/dist/
