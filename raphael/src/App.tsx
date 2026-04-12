@@ -4,6 +4,7 @@ import Onboarding from "./components/Onboarding";
 import ChatArea from "./components/ChatArea";
 import InputBar from "./components/InputBar";
 import CalendarView from "./components/CalendarView";
+import SettingsPanel from "./components/SettingsPanel";
 import { useChatStore } from "./store/chat";
 import { useCalendarStore } from "./calendar/store";
 import { loadConfig } from "./config/loader";
@@ -82,6 +83,7 @@ export default function App() {
   const [ready, setReady] = useState<boolean | null>(null);
   const [config, setConfig] = useState<RaphaelConfig>(DEFAULT_CONFIG);
   const [thinking, setThinking] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const { state, dispatch: chatDispatch } = useChatStore();
   const loadFromGist = useCalendarStore((s) => s.loadFromGist);
 
@@ -183,7 +185,30 @@ if (ready === null) return null;
       <div style={{ height: 2, background: thinking ? "#f59e0b" : "var(--accent)", flexShrink: 0, transition: "background 0.3s" }} />
       <div style={{ padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid #1e1e2e" }}>
         <span style={{ letterSpacing: "0.2em", fontSize: 11, fontWeight: 700 }}>RAPHAEL</span>
-        <div style={{ width: 8, height: 8, borderRadius: "50%", background: thinking ? "#f59e0b" : "var(--accent)", animation: "pulse 2s ease-in-out infinite" }} />
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <button
+            onClick={() => setShowSettings(true)}
+            style={{
+              background: "none",
+              border: "none",
+              color: "var(--text-muted)",
+              cursor: "pointer",
+              fontSize: 16,
+              lineHeight: 1,
+              padding: "0 4px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              transition: "color 0.2s",
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = "var(--accent)")}
+            onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-muted)")}
+            title="Settings"
+          >
+            ⚙️
+          </button>
+          <div style={{ width: 8, height: 8, borderRadius: "50%", background: thinking ? "#f59e0b" : "var(--accent)", animation: "pulse 2s ease-in-out infinite" }} />
+        </div>
       </div>
       <div style={{ borderBottom: "1px solid #1e1e2e", flexShrink: 0, maxHeight: 300, overflowY: "auto" }}>
         <CalendarView />
@@ -201,6 +226,16 @@ if (ready === null) return null;
         onEmailDiscard={(id) => chatDispatch({ type: "REMOVE", id })}
       />
       <InputBar onSubmit={handleSubmit} disabled={thinking} />
+      {showSettings && (
+        <SettingsPanel
+          config={config}
+          onClose={() => setShowSettings(false)}
+          onSave={(updatedConfig) => {
+            setConfig(updatedConfig);
+            setShowSettings(false);
+          }}
+        />
+      )}
     </div>
   );
 }
