@@ -38,7 +38,7 @@ fn log_to_file(msg: &str) {
 pub fn get_secret(key: String) -> Result<Option<String>, String> {
     log_to_file(&format!("get_secret: {}", key));
     let result = SecureStore::new(store_dir())?.get(&key);
-    log_to_file(&format!("get_secret result: {:?}", result));
+    log_to_file(&format!("get_secret result: {}", if result.as_ref().map(|r| r.is_some()).unwrap_or(false) { "Some(***)" } else { "None" }));
     result
 }
 
@@ -104,9 +104,12 @@ pub fn send_email(
     to: String,
     subject: String,
     body: String,
-    app_password: String,
 ) -> Result<(), String> {
     log_to_file(&format!("send_email: from={} to={} subject={}", from, to, subject));
+
+    let app_password = SecureStore::new(store_dir())?
+        .get("gmail_app_password")?
+        .ok_or_else(|| "Gmail app password not configured".to_string())?;
 
     let email = Message::builder()
         .from(from.parse().map_err(|e| format!("Invalid from address: {e}"))?)
