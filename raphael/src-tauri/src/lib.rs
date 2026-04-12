@@ -56,6 +56,8 @@ pub fn run() {
             commands::get_logs,
             commands::clear_logs,
             commands::send_email,
+            commands::load_config,
+            commands::save_config,
         ])
         .run(tauri::generate_context!())
         .expect("error while running raphael");

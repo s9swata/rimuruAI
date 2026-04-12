@@ -135,3 +135,19 @@ pub fn send_email(
     log_to_file("send_email: success");
     Ok(())
 }
+
+#[tauri::command]
+pub fn load_config() -> Result<String, String> {
+    let path = store_dir().join("config.json");
+    if !path.exists() {
+        return Ok(String::new());
+    }
+    fs::read_to_string(&path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn save_config(json: String) -> Result<(), String> {
+    let dir = store_dir();
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    fs::write(dir.join("config.json"), json).map_err(|e| e.to_string())
+}
