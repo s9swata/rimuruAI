@@ -3,7 +3,9 @@ import { invoke } from "@tauri-apps/api/core";
 import Onboarding from "./components/Onboarding";
 import ChatArea from "./components/ChatArea";
 import InputBar from "./components/InputBar";
+import CalendarView from "./components/CalendarView";
 import { useChatStore } from "./store/chat";
+import { useCalendarStore } from "./calendar/store";
 import { loadConfig } from "./config/loader";
 import { RaphaelConfig, DEFAULT_CONFIG } from "./config/types";
 import { orchestrate } from "./agent/orchestrator";
@@ -81,6 +83,7 @@ export default function App() {
   const [config, setConfig] = useState<RaphaelConfig>(DEFAULT_CONFIG);
   const [thinking, setThinking] = useState(false);
   const { state, dispatch: chatDispatch } = useChatStore();
+  const loadFromGist = useCalendarStore((s) => s.loadFromGist);
 
   useEffect(() => {
     invoke<string | null>("get_secret", { key: "groq_api_key" })
@@ -96,6 +99,10 @@ loadConfig()
       .then(setConfig)
       .catch((e) => console.error("Failed to load config:", e));
   }, []);
+
+  useEffect(() => {
+    loadFromGist().catch((e) => console.error("Calendar load error:", e));
+  }, [loadFromGist]);
 
   const history = state.items
     .filter((i) => i.type === "message")
@@ -177,6 +184,9 @@ if (ready === null) return null;
       <div style={{ padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid #1e1e2e" }}>
         <span style={{ letterSpacing: "0.2em", fontSize: 11, fontWeight: 700 }}>RAPHAEL</span>
         <div style={{ width: 8, height: 8, borderRadius: "50%", background: thinking ? "#f59e0b" : "var(--accent)", animation: "pulse 2s ease-in-out infinite" }} />
+      </div>
+      <div style={{ borderBottom: "1px solid #1e1e2e", flexShrink: 0, maxHeight: 300, overflowY: "auto" }}>
+        <CalendarView />
       </div>
       <ChatArea
         items={state.items}
