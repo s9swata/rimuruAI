@@ -10,8 +10,8 @@ export interface OrchestratorResult {
 }
 
 export function parseOrchestration(raw: string): OrchestratorResult {
-  console.log("[Orchestrator] Raw response:", raw.substring(0, 200));
-  // Strip <think>...</think> blocks from reasoning models (e.g. qwen3, deepseek-r1)
+  console.log("[Orchestrator] Raw response:", raw.substring(0, 500));
+  // Strip <think>... blocks from reasoning models (e.g. qwen3, deepseek-r1)
   let jsonStr = raw.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
   
   if (jsonStr.startsWith("```json")) {
@@ -20,8 +20,23 @@ export function parseOrchestration(raw: string): OrchestratorResult {
     jsonStr = jsonStr.replace(/^```\s*/, "").replace(/\s*```$/, "");
   }
   
+  // Try to find JSON object in the response
+  const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error("No JSON found in response: " + jsonStr.substring(0, 200));
+  }
+  jsonStr = jsonMatch[0];
+
   console.log("[Orchestrator] Parsing JSON...");
-  const parsed = JSON.parse(jsonStr);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonStr);
+  } catch (e) {
+    console.error("[Orchestrator] JSON parse error:", e);
+    // Try to fix common issues
+    jsonStr = jsonStr.replace(/,\s*}/g, '}').replace(/,\s*]/g, ']');
+    parsed = JSON.parse(jsonStr);
+  }
   
   if (
     typeof parsed.model !== "string" ||
