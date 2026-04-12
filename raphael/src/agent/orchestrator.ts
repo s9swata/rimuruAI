@@ -15,11 +15,12 @@ export async function orchestrate(
   userMessage: string,
   history: Array<{ role: "user" | "assistant"; content: string }>,
   persona: PersonaConfig,
+  profileContext: string,
 ): Promise<OrchestratorResult> {
   console.log("[Orchestrator] Starting orchestration (via Vercel AI SDK)...");
   
   const groq = await getGroqProvider();
-  const systemPrompt = buildSystemPrompt("orchestrator", persona);
+  const systemPrompt = buildSystemPrompt("orchestrator", persona, profileContext);
   
   const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
     { role: "system", content: systemPrompt },

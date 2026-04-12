@@ -39,6 +39,16 @@ export async function createServices(): Promise<ServiceMap> {
     },
     memory: {
       query: async () => ({ success: true, data: {} }),
+      saveProfile: async (p) => {
+        const params = p as { info?: string };
+        if (!params.info) return { success: false, error: "Missing info param" };
+        try {
+          await invoke("update_profile", { info: params.info });
+          return { success: true, data: { saved: true } };
+        } catch (e) {
+          return { success: false, error: String(e) };
+        }
+      },
     },
     search: {
       query: async (p) => {

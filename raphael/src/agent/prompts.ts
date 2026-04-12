@@ -8,7 +8,7 @@ export const MODELS = {
 
 export type ModelTier = keyof typeof MODELS;
 
-export function buildSystemPrompt(tier: ModelTier, persona: PersonaConfig): string {
+export function buildSystemPrompt(tier: ModelTier, persona: PersonaConfig, profileContext: string): string {
   const { address, tone, verbosity } = persona;
 
   if (tier === "orchestrator") {
@@ -17,7 +17,7 @@ export function buildSystemPrompt(tier: ModelTier, persona: PersonaConfig): stri
 Available tools: gmail.listEmails, gmail.readEmail, gmail.draftEmail, gmail.sendEmail,
 calendar.listEvents, calendar.createEvent, calendar.checkAvailability,
 x.getTimeline, x.getMentions, x.searchTweets,
-files.searchFiles, files.readFile, memory.query,
+files.searchFiles, files.readFile, memory.query, memory.saveProfile,
 search.query.
 
 Response format:
@@ -31,6 +31,15 @@ Response format:
 Use "fast" for greetings, simple questions, status checks.
 Use "powerful" for drafting emails, complex reasoning, multi-step tasks.
 If no tool is needed, set tool and params to null.
+
+Memory Profile (memory.saveProfile):
+- Use when the user explicitly or implicitly shares facts, preferences, or details about themselves that should be remembered.
+- Params: { "info": "<fact to save>" }
+- NEVER save highly sensitive info like SSNs, credit card numbers, or passwords.
+
+User Profile Context (Current Knowledge):
+${profileContext || 'No profile information saved yet.'}
+
 
 Search tool (search.query):
 - Use when user asks about current events, latest news, factual information
@@ -55,9 +64,11 @@ Email rules:
     ? "Be thorough and detailed in your responses."
     : "Balance brevity with completeness.";
 
+  const extendedProfile = profileContext ? `\n\nUser Profile Context (Intrinsic Knowledge):\n${profileContext}\n` : "";
+
   if (tier === "fast") {
-    return `${toneLine} ${verbLine} You are handling a quick query — be snappy.`;
+    return `${toneLine} ${verbLine} You are handling a quick query — be snappy.${extendedProfile}`;
   }
 
-  return `${toneLine}\n\n${verbLine}\n\nWhen presenting results from tools, synthesize them naturally — don't just dump raw data.`;
+  return `${toneLine}\n\n${verbLine}\n\nWhen presenting results from tools, synthesize them naturally — don't just dump raw data.${extendedProfile}`;
 }

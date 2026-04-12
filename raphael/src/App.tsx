@@ -84,6 +84,7 @@ export default function App() {
   const [config, setConfig] = useState<RaphaelConfig>(DEFAULT_CONFIG);
   const [thinking, setThinking] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [profileContent, setProfileContent] = useState<string>("");
   const { state, dispatch: chatDispatch } = useChatStore();
   const loadFromGist = useCalendarStore((s) => s.loadFromGist);
 
@@ -100,6 +101,10 @@ export default function App() {
 loadConfig()
       .then(setConfig)
       .catch((e) => console.error("Failed to load config:", e));
+
+    invoke<string>("load_profile")
+      .then(setProfileContent)
+      .catch((e) => console.error("Failed to load profile:", e));
   }, []);
 
   useEffect(() => {
@@ -116,7 +121,7 @@ loadConfig()
     setThinking(true);
 
     try {
-      const plan = await orchestrate(text, history, config.persona);
+      const plan = await orchestrate(text, history, config.persona, profileContent);
 
       let toolContext = "";
       if (plan.tool) {
@@ -143,6 +148,9 @@ loadConfig()
           if (result.success) {
             toolContext = JSON.stringify(result.data, null, 2).slice(0, 1000);
             chatDispatch({ type: "UPDATE_TOOL", id: cardId, status: "done", result: toolContext.slice(0, 120) });
+            if (plan.tool === "memory.saveProfile") {
+              invoke<string>("load_profile").then(setProfileContent).catch(console.error);
+            }
           } else {
             chatDispatch({ type: "UPDATE_TOOL", id: cardId, status: "error", result: result.error });
             toolContext = `Tool error: ${result.error}`;
@@ -152,7 +160,7 @@ loadConfig()
 
       const replyId = crypto.randomUUID();
       const model = pickModel(plan.model);
-      const systemPrompt = buildSystemPrompt(plan.model === "fast" ? "fast" : "powerful", config.persona);
+      const systemPrompt = buildSystemPrompt(plan.model === "fast" ? "fast" : "powerful", config.persona, profileContent);
       const contextMsg = toolContext ? `Tool result:\n${toolContext}\n\nNow respond to the user naturally.` : text;
 
       chatDispatch({ type: "ADD_MESSAGE", msg: { id: replyId, role: "assistant", content: "", streaming: true } });

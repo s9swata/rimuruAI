@@ -33,6 +33,7 @@ export type ServiceMap = {
   };
   memory: {
     query: (params: Record<string, unknown>) => Promise<ToolResult>;
+    saveProfile: (params: Record<string, unknown>) => Promise<ToolResult>;
   };
   search: {
     query: (params: Record<string, unknown>) => Promise<ToolResult>;

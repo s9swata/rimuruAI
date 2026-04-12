@@ -151,3 +151,32 @@ pub fn save_config(json: String) -> Result<(), String> {
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     fs::write(dir.join("config.json"), json).map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub fn load_profile() -> Result<String, String> {
+    let path = store_dir().join("PROFILE.md");
+    if !path.exists() {
+        return Ok(String::new());
+    }
+    fs::read_to_string(&path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn update_profile(info: String) -> Result<(), String> {
+    let dir = store_dir();
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join("PROFILE.md");
+    
+    let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+    let entry = format!("- [{}]: {}\n", timestamp, info);
+    
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&path) {
+        if let Err(e) = write!(file, "{}", entry) {
+            return Err(e.to_string());
+        }
+        log_to_file(&format!("update_profile saved: {}", info));
+        Ok(())
+    } else {
+        Err("Could not open PROFILE.md for appending".to_string())
+    }
+}
