@@ -6,6 +6,7 @@
     "dev": "tauri dev",
     "build": "tauri build",
     "frontend:dev": "vite",
+    "build:frontend": "vite build",
     "test": "vitest run"
   },
   "dependencies": {
