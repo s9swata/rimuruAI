@@ -1,4 +1,4 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 5.10
 import PackageDescription
 
 let package = Package(
@@ -8,6 +8,7 @@ let package = Package(
         .executableTarget(
             name: "WordsOfWorld",
             path: "WordsOfWorld",
+            exclude: ["Info.plist", "WordsOfWorld.entitlements"],
             linkerSettings: [
                 .linkedFramework("Carbon"),
                 .linkedFramework("UserNotifications")
@@ -16,7 +17,12 @@ let package = Package(
         .testTarget(
             name: "WordsOfWorldTests",
             dependencies: ["WordsOfWorld"],
-            path: "WordsOfWorldTests"
+            path: "WordsOfWorldTests",
+            swiftSettings: [
+                .unsafeFlags([
+                    "-F", "/Library/Developer/CommandLineTools/Library/Developer/Frameworks"
+                ])
+            ]
         )
     ]
 )
