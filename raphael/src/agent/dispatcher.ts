@@ -1,15 +1,17 @@
 import { RaphaelConfig } from "../config/types";
+import { ToolResult } from "./types";
+import { ToolRegistry } from "./registry";
+
+export type { ToolResult };
 
 export function requiresApprovalCheck(tool: string, config: RaphaelConfig): boolean {
   return config.tools[tool]?.requiresApproval ?? false;
 }
 
-export interface ToolResult {
-  success: boolean;
-  data?: unknown;
-  error?: string;
-}
-
+/**
+ * ServiceMap — kept for backward compatibility with createServices() return type.
+ * initRegistry() accepts this type to register builtin implementations.
+ */
 export type ServiceMap = {
   gmail: {
     listEmails: (params: Record<string, unknown>) => Promise<ToolResult>;
@@ -40,30 +42,14 @@ export type ServiceMap = {
   };
 };
 
+/**
+ * Execute a tool by name using the registry.
+ * This replaces the old ServiceMap-based dispatch.
+ */
 export async function dispatch(
   tool: string,
   params: Record<string, unknown>,
-  services: ServiceMap,
+  registry: ToolRegistry,
 ): Promise<ToolResult> {
-  const [service, method] = tool.split(".") as [keyof ServiceMap, string];
-  
-  if (!service || !method) {
-    return { success: false, error: `Invalid tool format: ${tool}` };
-  }
-  
-  const serviceObj = services[service];
-  if (!serviceObj) {
-    return { success: false, error: `Unknown service: ${service}` };
-  }
-  
-  const methodFn = (serviceObj as Record<string, unknown>)[method];
-  if (typeof methodFn !== "function") {
-    return { success: false, error: `Unknown method: ${method}` };
-  }
-  
-  try {
-    return await methodFn(params);
-  } catch (err) {
-    return { success: false, error: String(err) };
-  }
+  return registry.execute(tool, params);
 }
