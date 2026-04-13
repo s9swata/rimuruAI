@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { RaphaelConfig, TrustLevel, applyTrustLevel } from "../config/types";
 import { saveConfig } from "../config/loader";
+import { getGmailAuthStatus, startGoogleOAuth, revokeGoogleOAuth } from "../services/index";
 
 interface Props {
   config: RaphaelConfig;
@@ -93,37 +94,69 @@ function SaveButton({ onClick }: { onClick: () => void }) {
 
 function ApiKeysSection() {
   const [groqKey, setGroqKey] = useState("");
-  const [gmailAddress, setGmailAddress] = useState("");
-  const [gmailPassword, setGmailPassword] = useState("");
+  const [googleClientId, setGoogleClientId] = useState("");
   const [githubPat, setGithubPat] = useState("");
   const [serperKey, setSerperKey] = useState("");
+  const [gmailConnected, setGmailConnected] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [oauthStatus, setOauthStatus] = useState<"idle" | "pending" | "error">("idle");
+  const [oauthError, setOauthError] = useState("");
 
   useEffect(() => {
     (async () => {
-      const [groq, gmail, pass, gh, serper] = await Promise.all([
+      const [groq, clientId, gh, serper, connected] = await Promise.all([
         invoke<string | null>("get_secret", { key: "groq_api_key" }),
-        invoke<string | null>("get_secret", { key: "gmail_address" }),
-        invoke<string | null>("get_secret", { key: "gmail_app_password" }),
+        invoke<string | null>("get_secret", { key: "google_client_id" }),
         invoke<string | null>("get_secret", { key: "github_pat" }),
         invoke<string | null>("get_secret", { key: "serper_api_key" }),
+        getGmailAuthStatus(),
       ]);
       if (groq) setGroqKey(groq);
-      if (gmail) setGmailAddress(gmail);
-      if (pass) setGmailPassword(pass);
+      if (clientId) setGoogleClientId(clientId);
       if (gh) setGithubPat(gh);
       if (serper) setSerperKey(serper);
+      setGmailConnected(connected);
     })();
   }, []);
 
-  async function handleSave() {
+  async function handleSaveKeys() {
     if (groqKey) await invoke("set_secret", { key: "groq_api_key", value: groqKey });
-    if (gmailAddress) await invoke("set_secret", { key: "gmail_address", value: gmailAddress });
-    if (gmailPassword) await invoke("set_secret", { key: "gmail_app_password", value: gmailPassword });
+    if (googleClientId) await invoke("set_secret", { key: "google_client_id", value: googleClientId });
     if (githubPat) await invoke("set_secret", { key: "github_pat", value: githubPat });
     if (serperKey) await invoke("set_secret", { key: "serper_api_key", value: serperKey });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  }
+
+  async function handleConnectGmail() {
+    if (!googleClientId) {
+      setOauthError("Save your Google client_id first.");
+      return;
+    }
+    try {
+      setOauthStatus("pending");
+      setOauthError("");
+      await invoke("set_secret", { key: "google_client_id", value: googleClientId });
+      const authUrl = await startGoogleOAuth();
+      window.open(authUrl, "_blank");
+      const poll = setInterval(async () => {
+        const connected = await getGmailAuthStatus();
+        if (connected) {
+          clearInterval(poll);
+          setGmailConnected(true);
+          setOauthStatus("idle");
+        }
+      }, 2000);
+      setTimeout(() => clearInterval(poll), 300_000);
+    } catch (e) {
+      setOauthStatus("error");
+      setOauthError(String(e));
+    }
+  }
+
+  async function handleDisconnectGmail() {
+    await revokeGoogleOAuth();
+    setGmailConnected(false);
   }
 
   return (
@@ -134,12 +167,8 @@ function ApiKeysSection() {
         <TextInput type="password" value={groqKey} onChange={setGroqKey} placeholder="gsk_..." />
       </div>
       <div>
-        <FieldLabel>Gmail Address</FieldLabel>
-        <TextInput type="text" value={gmailAddress} onChange={setGmailAddress} placeholder="you@gmail.com" />
-      </div>
-      <div>
-        <FieldLabel>Gmail App Password</FieldLabel>
-        <TextInput type="password" value={gmailPassword} onChange={setGmailPassword} placeholder="xxxx xxxx xxxx xxxx" />
+        <FieldLabel>Google OAuth Client ID</FieldLabel>
+        <TextInput type="text" value={googleClientId} onChange={setGoogleClientId} placeholder="xxxxxx.apps.googleusercontent.com" />
       </div>
       <div>
         <FieldLabel>GitHub PAT (optional — calendar cloud sync)</FieldLabel>
@@ -150,8 +179,37 @@ function ApiKeysSection() {
         <TextInput type="password" value={serperKey} onChange={setSerperKey} placeholder="Get from serper.dev" />
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <SaveButton onClick={handleSave} />
+        <SaveButton onClick={handleSaveKeys} />
         {saved && <span style={{ fontSize: 11, color: "var(--accent)" }}>Saved</span>}
+      </div>
+
+      <div style={{ borderTop: "1px solid var(--accent-dim)", paddingTop: 12 }}>
+        <FieldLabel>Gmail (OAuth 2.0)</FieldLabel>
+        {gmailConnected ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ fontSize: 12, color: "var(--accent)" }}>Connected</span>
+            <button
+              onClick={handleDisconnectGmail}
+              style={{ background: "var(--bg-chip)", color: "var(--text-muted)", border: "none", borderRadius: "var(--radius)", padding: "5px 12px", fontFamily: "var(--font-mono)", fontSize: 11, cursor: "pointer" }}
+            >
+              Disconnect
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <button
+              onClick={handleConnectGmail}
+              disabled={oauthStatus === "pending"}
+              style={{ alignSelf: "flex-start", background: "var(--accent)", color: "white", border: "none", borderRadius: "var(--radius)", padding: "6px 16px", fontFamily: "var(--font-mono)", fontSize: 12, cursor: "pointer", opacity: oauthStatus === "pending" ? 0.6 : 1 }}
+            >
+              {oauthStatus === "pending" ? "Waiting for browser…" : "Connect Gmail"}
+            </button>
+            {oauthError && <span style={{ fontSize: 11, color: "var(--danger)" }}>{oauthError}</span>}
+            <span style={{ fontSize: 10, color: "var(--text-muted)" }}>
+              Opens browser → Google consent → returns automatically
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );
