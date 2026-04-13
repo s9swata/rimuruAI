@@ -138,31 +138,42 @@ pub async fn spawn_process(
         let app_clone = app.clone();
         let registry_clone = Arc::clone(&*registry);
         std::thread::spawn(move || {
-            // We need a second handle to the child to wait on it. Since we
-            // moved `child.stdin/stdout/stderr` out above, only the raw child
-            // remains. We'll store it in the registry and wait from there.
-            //
-            // Grab a mutable ref via a second lock after the slot is inserted.
-            // The slot is inserted below (after this thread spawns) so we park
-            // briefly to let the main thread finish inserting.
-            std::thread::sleep(std::time::Duration::from_millis(50));
-            let code = {
-                let mut map = registry_clone.lock().unwrap();
-                if let Some(slot) = map.get_mut(&id_clone) {
-                    slot.child.wait().ok().and_then(|s| s.code())
-                } else {
-                    None
+            // Poll for exit without holding the lock indefinitely.
+            // If we held the lock while waiting, all other shell commands (like write_to_process)
+            // would deadlock instantly.
+            loop {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+
+                let result = {
+                    let mut map = match registry_clone.lock() {
+                        Ok(m) => m,
+                        Err(_) => break, // Poisioned lock
+                    };
+                    
+                    if let Some(slot) = map.get_mut(&id_clone) {
+                        match slot.child.try_wait() {
+                            Ok(Some(status)) => Some(status.code()),
+                            Ok(None) => continue, // Still running, release lock and loop
+                            Err(_) => Some(None), // Error
+                        }
+                    } else {
+                        // Slot was manually removed (e.g. killed)
+                        break;
+                    }
+                };
+
+                // If we reach here, the process exited (Some(code))
+                if let Some(code) = result {
+                    if let Ok(mut map) = registry_clone.lock() {
+                        map.remove(&id_clone);
+                    }
+                    let _ = app_clone.emit(
+                        "process-exit",
+                        ProcessExitPayload { id: id_clone, code },
+                    );
                 }
-            };
-            // Remove slot on exit – stdin dropped, resources freed.
-            {
-                let mut map = registry_clone.lock().unwrap();
-                map.remove(&id_clone);
+                break;
             }
-            let _ = app_clone.emit(
-                "process-exit",
-                ProcessExitPayload { id: id_clone, code },
-            );
         });
     }
 
