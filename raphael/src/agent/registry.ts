@@ -250,17 +250,37 @@ export function initRegistry(services: ServiceMap): ToolRegistry {
 
   // ── memory ────────────────────────────────────────────────────────────
   r.register(
-    { name: "memory.query", description: "Query the user memory/profile", parameters: {}, type: "builtin" },
+    {
+      name: "memory.query",
+      description: "Search the knowledge graph for entities and relationships related to a topic. Returns nodes and edges from the graph.",
+      parameters: {
+        query: { type: "string", description: "Plain text query, e.g. 'Priya sister Delhi' or 'machine learning projects'" },
+        depth: { type: "number", description: "How many hops to expand from matching nodes (default 2, max 4)" },
+      },
+      type: "builtin",
+    },
     services.memory.query,
   );
   r.register(
     {
       name: "memory.saveProfile",
-      description: "Save a fact about the user to long-term memory",
-      parameters: { info: { type: "string", description: "Fact or preference to remember" } },
+      description: "Save a personal fact or preference about the user to the flat profile (PROFILE.md). Use for simple biographical facts.",
+      parameters: { info: { type: "string", description: "Fact or preference to remember, e.g. 'User prefers dark mode'" } },
       type: "builtin",
     },
     services.memory.saveProfile,
+  );
+  r.register(
+    {
+      name: "memory.store",
+      description: "Extract entities and relationships from text and store them in the knowledge graph. Use this when you learn something worth remembering — facts about people, places, events, preferences, or relationships.",
+      parameters: {
+        text: { type: "string", description: "The text to extract knowledge from. Can be a sentence, paragraph, or summary of what you learned." },
+        source: { type: "string", description: "Where this info came from, e.g. 'user message', 'email from Priya', 'web search result'" },
+      },
+      type: "builtin",
+    },
+    services.memory.store,
   );
 
   // ── search ────────────────────────────────────────────────────────────
