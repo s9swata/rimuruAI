@@ -2,6 +2,18 @@ import { invoke } from "@tauri-apps/api/core";
 import { ServiceMap } from "../agent/dispatcher";
 import { calendarService } from "../calendar/store";
 
+export async function getGmailAuthStatus(): Promise<boolean> {
+  return invoke<boolean>("get_gmail_auth_status");
+}
+
+export async function startGoogleOAuth(): Promise<string> {
+  return invoke<string>("start_google_oauth");
+}
+
+export async function revokeGoogleOAuth(): Promise<void> {
+  await invoke("revoke_google_oauth");
+}
+
 export async function createServices(): Promise<ServiceMap> {
   return {
     gmail: {
