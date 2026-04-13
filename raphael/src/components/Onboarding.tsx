@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getGmailAuthStatus, startGoogleOAuth } from "../services/index";
 
 interface Props { onComplete: () => void; }
 
@@ -8,10 +9,10 @@ type Step = "groq" | "gmail" | "github" | "done";
 export default function Onboarding({ onComplete }: Props) {
   const [step, setStep] = useState<Step>("groq");
   const [groqKey, setGroqKey] = useState("");
-  const [gmailAddress, setGmailAddress] = useState("");
-  const [gmailAppPassword, setGmailAppPassword] = useState("");
+  const [googleClientId, setGoogleClientId] = useState("");
   const [githubPat, setGithubPat] = useState("");
   const [error, setError] = useState("");
+  const [oauthPending, setOauthPending] = useState(false);
 
   async function saveGroq() {
     if (!groqKey.startsWith("gsk_")) { setError("Groq keys start with gsk_"); return; }
@@ -19,11 +20,34 @@ export default function Onboarding({ onComplete }: Props) {
     setError(""); setStep("gmail");
   }
 
-  async function saveGmail() {
-    if (!gmailAddress.includes("@")) { setError("Enter a valid Gmail address"); return; }
-    if (!gmailAppPassword) { setError("App password required"); return; }
-    await invoke("set_secret", { key: "gmail_address", value: gmailAddress });
-    await invoke("set_secret", { key: "gmail_app_password", value: gmailAppPassword });
+  async function startGmail() {
+    if (!googleClientId) { setError("Paste your Google OAuth client_id first"); return; }
+    setError("");
+    await invoke("set_secret", { key: "google_client_id", value: googleClientId });
+    try {
+      setOauthPending(true);
+      const authUrl = await startGoogleOAuth();
+      window.open(authUrl, "_blank");
+      const poll = setInterval(async () => {
+        const connected = await getGmailAuthStatus();
+        if (connected) {
+          clearInterval(poll);
+          setOauthPending(false);
+          setStep("github");
+        }
+      }, 2000);
+      setTimeout(() => {
+        clearInterval(poll);
+        setOauthPending(false);
+        setError("OAuth timed out. Try again.");
+      }, 300_000);
+    } catch (e) {
+      setOauthPending(false);
+      setError(String(e));
+    }
+  }
+
+  async function skipGmail() {
     setError(""); setStep("github");
   }
 
@@ -51,7 +75,7 @@ export default function Onboarding({ onComplete }: Props) {
     <div style={container}>
       <div style={{ color: "var(--accent)", letterSpacing: "0.2em", fontSize: 11 }}>
         {step === "groq"   && "STEP 1 / 3 — GROQ API KEY"}
-        {step === "gmail"  && "STEP 2 / 3 — GMAIL CREDENTIALS"}
+        {step === "gmail"  && "STEP 2 / 3 — GMAIL (GOOGLE OAUTH)"}
         {step === "github" && "STEP 3 / 3 — GITHUB (CALENDAR SYNC)"}
       </div>
 
@@ -62,12 +86,25 @@ export default function Onboarding({ onComplete }: Props) {
       </>}
 
       {step === "gmail" && <>
-        <SecretInput label="Gmail Address" value={gmailAddress} onChange={setGmailAddress} />
-        <SecretInput label="Gmail App Password" value={gmailAppPassword} onChange={setGmailAppPassword} />
+        <SecretInput label="Google OAuth Client ID" value={googleClientId} onChange={setGoogleClientId} />
         <HelpText>
-          myaccount.google.com → Security → 2-Step Verification → App Passwords
+          console.cloud.google.com → Credentials → OAuth 2.0 Client ID (Desktop app type)
         </HelpText>
-        <button onClick={saveGmail} style={btnStyle}>Next</button>
+        {oauthPending ? (
+          <div style={{ color: "var(--text-muted)", fontSize: 12 }}>
+            Waiting for Google consent in browser…
+          </div>
+        ) : (
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={startGmail} style={btnStyle}>Connect Gmail</button>
+            <button
+              onClick={skipGmail}
+              style={{ ...btnStyle, background: "var(--bg-chip)", color: "var(--text-muted)" }}
+            >
+              Skip
+            </button>
+          </div>
+        )}
       </>}
 
       {step === "github" && <>
@@ -88,10 +125,16 @@ function SecretInput({ label, value, onChange }: { label: string; value: string;
   return (
     <div style={{ width: "100%" }}>
       <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>{label}</div>
-      <input type="password" value={value} onChange={(e) => onChange(e.target.value)}
-        style={{ width: "100%", background: "var(--bg-surface)", color: "var(--text)",
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        style={{
+          width: "100%", background: "var(--bg-surface)", color: "var(--text)",
           border: "1px solid var(--accent-dim)", borderRadius: "var(--radius)",
-          padding: "8px 12px", fontFamily: "var(--font-mono)", fontSize: 12, outline: "none" }} />
+          padding: "8px 12px", fontFamily: "var(--font-mono)", fontSize: 12, outline: "none",
+        }}
+      />
     </div>
   );
 }
