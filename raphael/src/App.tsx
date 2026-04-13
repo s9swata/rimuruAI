@@ -122,8 +122,8 @@ loadConfig()
   }, [loadFromGist]);
 
   const history = state.items
-    .filter((i) => i.type === "message")
-    .map((i) => ({ role: i.data.role as "user" | "assistant", content: i.data.content }));
+    .filter((i) => i.type === "message" && !((i.data as { content: string }).content.startsWith("Error:")))
+    .map((i) => ({ role: (i.data as { role: string }).role as "user" | "assistant", content: (i.data as { content: string }).content }));
 
   const handleSubmit = useCallback(async (text: string) => {
     const userMsgId = crypto.randomUUID();
@@ -137,7 +137,10 @@ loadConfig()
         setThinking(false);
         return;
       }
-      const plan = await orchestrate(text, history, config.persona, profileContent, registryRef.current);
+      const plan = await orchestrate(text, history, config.persona, profileContent, registryRef.current).catch((e) => {
+        console.error("Orchestrator failed, falling back to fast model:", e);
+        return { model: "fast" as const, tool: null, params: null, intent: "direct response" };
+      });
 
       let toolContext = "";
       if (plan.tool) {

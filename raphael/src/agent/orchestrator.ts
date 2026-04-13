@@ -43,7 +43,7 @@ export async function orchestrate(
   try {
     console.log("[Orchestrator] Calling generateObject...");
 
-    const { object } = await generateObject({
+    const { object, finishReason, usage } = await generateObject({
       model: groq(MODELS.orchestrator),
       providerOptions: { groq: { structuredOutputs: false } },
       messages,
@@ -55,10 +55,14 @@ export async function orchestrate(
       }),
     });
 
-    console.log("[Orchestrator] Parsed result:", object);
+    console.log("[Orchestrator] Parsed result:", object, "finishReason:", finishReason, "usage:", usage);
     return object;
   } catch (e) {
     console.error("[Orchestrator] Error generating object:", e);
+    const errMsg = String(e);
+    if (errMsg.includes("failed_generation")) {
+      console.error("[Orchestrator] LLM failed to generate valid JSON. Prompt may need adjustment.");
+    }
     throw e;
   }
 }
