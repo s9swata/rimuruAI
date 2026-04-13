@@ -1,57 +1,44 @@
 import { invoke } from "@tauri-apps/api/core";
 import { ServiceMap } from "../agent/dispatcher";
 import { calendarService } from "../calendar/store";
-import { generateObject } from "ai";
-import { z } from "zod";
+import { generateText } from "ai";
 import { getGroqProvider } from "../agent/groq";
 
-const extractionSchema = z.object({
-  nodes: z.array(
-    z.object({
-      id: z.string().describe(
-        "Stable snake_case identifier derived from the entity name. e.g. 'priya_sharma', 'delhi', 'machine_learning'. Must be unique."
-      ),
-      label: z.string().describe("Human-readable name. e.g. 'Priya Sharma', 'Delhi', 'Machine Learning'."),
-      node_type: z.string().describe(
-        "Category. One of: person, place, concept, event, organization, technology, preference, habit."
-      ),
-      description: z.string().describe("One sentence describing this entity in context."),
-      confidence: z.enum(["EXTRACTED", "INFERRED"]).describe(
-        "EXTRACTED if explicitly stated in text. INFERRED if implied but not directly stated."
-      ),
-    })
-  ),
-  edges: z.array(
-    z.object({
-      source: z.string().describe("ID of the source node (must match a node id above)."),
-      target: z.string().describe("ID of the target node (must match a node id above)."),
-      relation: z.string().describe(
-        "Relationship type. e.g. 'knows', 'lives_in', 'works_at', 'prefers', 'related_to', 'part_of'."
-      ),
-      confidence: z.enum(["EXTRACTED", "INFERRED", "AMBIGUOUS"]).describe(
-        "EXTRACTED: directly stated. INFERRED: implied. AMBIGUOUS: uncertain."
-      ),
-      confidence_score: z.number().min(0).max(1).describe("0.0 to 1.0 confidence. 1.0 for EXTRACTED, 0.5 for INFERRED, 0.2 for AMBIGUOUS."),
-    })
-  ),
-});
-
-type ExtractionResult = z.infer<typeof extractionSchema>;
+type ExtractionResult = {
+  nodes: Array<{
+    id: string;
+    label: string;
+    node_type: string;
+    description: string;
+    confidence: "EXTRACTED" | "INFERRED";
+  }>;
+  edges: Array<{
+    source: string;
+    target: string;
+    relation: string;
+    confidence: "EXTRACTED" | "INFERRED" | "AMBIGUOUS";
+    confidence_score: number;
+  }>;
+};
 
 async function extractNodesFromText(text: string): Promise<ExtractionResult> {
   const groq = await getGroqProvider();
 
   try {
-    const { object, text: rawText } = await generateObject({
+    const { text: rawText } = await generateText({
       model: groq("llama-3.3-70b-versatile"),
-      schema: extractionSchema,
       messages: [
         {
           role: "system",
-          content: `You are a knowledge graph extraction engine. Given text, extract entities (nodes) and relationships (edges). Output valid JSON with this exact structure: {"nodes": [...], "edges": [...]}.
+          content: `You are a knowledge graph extraction engine. Given text, extract entities (nodes) and relationships (edges). Output ONLY valid JSON with no other text.
 
-Node fields: id (snake_case), label (human readable), node_type (one of: person, place, concept, event, organization, technology, preference, habit), description, confidence (EXTRACTED or INFERRED).
-Edge fields: source (node id), target (node id), relation, confidence (EXTRACTED, INFERRED, or AMBIGUOUS), confidence_score (0.0-1.0).
+Required JSON structure:
+{"nodes": [{"id": "string", "label": "string", "node_type": "string", "description": "string", "confidence": "EXTRACTED|INFERRED"}], "edges": [{"source": "string", "target": "string", "relation": "string", "confidence": "EXTRACTED|INFERRED|AMBIGUOUS", "confidence_score": number}]}
+
+Node types: person, place, concept, event, organization, technology, preference, habit
+Relations: knows, lives_in, works_at, prefers, related_to, part_of, interested_in
+Confidence: EXTRACTED (explicitly stated), INFERRED (implied), AMBIGUOUS (uncertain)
+confidence_score: 1.0 for EXTRACTED, 0.5 for INFERRED, 0.2 for AMBIGUOUS
 If nothing meaningful, return {"nodes": [], "edges": []}.`,
         },
         {
@@ -60,8 +47,15 @@ If nothing meaningful, return {"nodes": [], "edges": []}.`,
         },
       ],
     });
-    console.log("[Graph] Extraction result:", JSON.stringify(object));
-    return object;
+    
+    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error("No JSON found in response");
+    }
+    
+    const parsed = JSON.parse(jsonMatch[0]);
+    console.log("[Graph] Extraction result:", JSON.stringify(parsed));
+    return parsed as ExtractionResult;
   } catch (e) {
     console.error("[Graph] Extraction error:", e);
     throw e;
