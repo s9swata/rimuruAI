@@ -1,10 +1,5 @@
 use crate::secure_store::SecureStore;
 use dirs::data_dir;
-use lettre::{
-    message::header::ContentType,
-    transport::smtp::authentication::Credentials,
-    Message, SmtpTransport, Transport,
-};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
@@ -107,33 +102,55 @@ pub fn send_email(
 ) -> Result<(), String> {
     log_to_file(&format!("send_email: from={} to={} subject={}", from, to, subject));
 
-    let store = SecureStore::new(store_dir())?;
-    let app_password = store
-        .get("gmail_app_password")?
-        .ok_or_else(|| "Gmail app password not configured".to_string())?;
-    // Use the stored account address as SMTP auth username, not `from` which may be an alias
-    let auth_user = store
-        .get("gmail_address")?
-        .ok_or_else(|| "Gmail address not configured".to_string())?;
+    let access_token = crate::google_oauth::get_valid_access_token(store_dir())?;
 
-    let email = Message::builder()
-        .from(from.parse().map_err(|e| format!("Invalid from address: {e}"))?)
-        .to(to.parse().map_err(|e| format!("Invalid to address: {e}"))?)
-        .subject(&subject)
-        .header(ContentType::TEXT_PLAIN)
-        .body(body)
-        .map_err(|e| e.to_string())?;
+    let rt = tokio::runtime::Handle::try_current()
+        .map_err(|_| "No tokio runtime available".to_string())?;
 
-    let creds = Credentials::new(auth_user, app_password);
+    rt.block_on(crate::gmail_api::send_email(
+        &access_token,
+        &from,
+        &to,
+        &subject,
+        &body,
+    ))?;
 
-    let mailer = SmtpTransport::relay("smtp.gmail.com")
-        .map_err(|e| e.to_string())?
-        .credentials(creds)
-        .build();
-
-    mailer.send(&email).map_err(|e| format!("SMTP error: {e}"))?;
-    log_to_file("send_email: success");
+    log_to_file("send_email: success via Gmail API");
     Ok(())
+}
+
+/// Initiates Google OAuth 2.0 PKCE flow.
+/// Returns the authorization URL — frontend opens it in the system browser.
+#[tauri::command]
+pub async fn start_google_oauth() -> Result<String, String> {
+    log_to_file("start_google_oauth: initiating");
+
+    let store = SecureStore::new(store_dir())?;
+    let client_id = store
+        .get("google_client_id")?
+        .ok_or("Google client_id not configured. Save it in Settings first.")?;
+
+    if client_id.is_empty() {
+        return Err("Google client_id is empty. Save it in Settings first.".to_string());
+    }
+
+    let url = crate::google_oauth::start_oauth_flow(client_id, store_dir()).await?;
+
+    log_to_file("start_google_oauth: auth url generated");
+    Ok(url)
+}
+
+/// Returns whether the user has connected their Gmail account (has a non-empty refresh token).
+#[tauri::command]
+pub fn get_gmail_auth_status() -> bool {
+    crate::google_oauth::is_authenticated(store_dir())
+}
+
+/// Removes all Google OAuth tokens — user must re-authenticate to send email.
+#[tauri::command]
+pub fn revoke_google_oauth() -> Result<(), String> {
+    log_to_file("revoke_google_oauth");
+    crate::google_oauth::revoke(store_dir())
 }
 
 #[tauri::command]

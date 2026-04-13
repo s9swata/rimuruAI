@@ -1,6 +1,8 @@
 mod commands;
 mod secure_store;
 mod search;
+mod google_oauth;
+mod gmail_api;
 
 use tauri::{
     menu::{Menu, MenuItem},
@@ -57,6 +59,9 @@ pub fn run() {
             commands::get_logs,
             commands::clear_logs,
             commands::send_email,
+            commands::start_google_oauth,
+            commands::get_gmail_auth_status,
+            commands::revoke_google_oauth,
             commands::load_config,
             commands::save_config,
             commands::load_profile,
