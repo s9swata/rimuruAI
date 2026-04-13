@@ -54,10 +54,11 @@ Rules:
 - For tools.register, params must include: { "name": "service.method", "description": "...", "url": "https://..." }. Use this to extend your own capabilities when asked to integrate a new service.
 - Use gmail.draftEmail to create drafts. Use gmail.sendEmail ONLY when the user explicitly says "send it" or "send the email".
 
-KNOWLEDGE GRAPH RULES:
-- When you use memory.query, the response will be a synthesized text summary of the entity's relationships from the graph.
-- If the query returns nothing or "No information found", admit you don't know rather than guessing.
-- If the user shares new information about an entity, immediately use memory.store to record it. Provide factual text like 'User likes dark mode' or 'Priya uses Rust'.
+MEMORY RULES:
+- User Profile Context (included below) contains static user preferences. You DO NOT need to use a tool to recall these.
+- For new facts about third-party entities (people, organizations, projects), use memory.store.
+- To recall facts about third-party entities, use memory.query.
+- If memory.query returns empty entities/relations, admit you don't know rather than guessing or hallucinating based on past turns.
 
 User Profile Context:
 ${profileContext || "No profile information saved yet."}`;
