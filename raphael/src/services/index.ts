@@ -1,8 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { ServiceMap } from "../agent/dispatcher";
 import { calendarService } from "../calendar/store";
-import { generateText } from "ai";
-import { getGroqProvider } from "../agent/groq";
+import { callMemoryTool } from "../agent/MemoryMCPClient";
 
 
 
@@ -56,26 +55,16 @@ export async function createServices(): Promise<ServiceMap> {
       readFile: async () => ({ success: true, data: { path: "", content: "" } }),
     },
     memory: {
+      // ── Backed by @modelcontextprotocol/server-memory via Rust stdio ──────
       query: async (p) => {
-        const params = p as { query?: string; depth?: number };
-        if (!params.query) {
-          console.error("[Graphify] Missing query param in memory.query");
-          return { success: false, error: "Missing query param" };
-        }
-        try {
-          console.log(`[Graphify] Executing memory.query for: "${params.query}"`);
-          const result = await invoke<string>("graphify_query", {
-            query: params.query,
-            depth: params.depth ?? 2,
-          });
-          console.log(`[Graphify] memory.query SUCCESS. Result snippet: ${result.substring(0, 150)}...`);
-          return { success: true, data: result };
-        } catch (e) {
-          console.error(`[Graphify] memory.query FAILED:`, e);
-          return { success: false, error: String(e) };
-        }
+        const params = p as { query?: string };
+        if (!params.query) return { success: false, error: "Missing query param" };
+        console.log(`[MemoryMCP] memory.query: "${params.query}"`);
+        // The official memory server exposes a 'search_nodes' tool for querying
+        return callMemoryTool("search_nodes", { query: params.query });
       },
       saveProfile: async (p) => {
+        // Still writes to PROFILE.md flat file — unchanged
         const params = p as { info?: string };
         if (!params.info) return { success: false, error: "Missing info param" };
         try {
@@ -86,23 +75,17 @@ export async function createServices(): Promise<ServiceMap> {
         }
       },
       store: async (p) => {
-        const params = p as { text?: string };
-        if (!params.text) {
-          console.error("[Graphify] Missing text param in memory.store");
-          return { success: false, error: "Missing text param" };
-        }
-        try {
-          console.log(`[Graphify] Executing memory.store with text: "${params.text}"`);
-          const result = await invoke<string>("store_memory", { text: params.text });
-          console.log(`[Graphify] memory.store SUCCESS. Result: ${result}`);
-          return {
-            success: true,
-            data: { stored: true, result },
-          };
-        } catch (e) {
-          console.error(`[Graphify] memory.store FAILED:`, e);
-          return { success: false, error: String(e) };
-        }
+        const params = p as { text?: string; entityName?: string; entityType?: string };
+        if (!params.text) return { success: false, error: "Missing text param" };
+        console.log(`[MemoryMCP] memory.store: "${params.text}"`);
+        // Create a generic entity + observation using server-memory's tools
+        const name = params.entityName ?? `fact_${Date.now()}`;
+        const type = params.entityType ?? "fact";
+        // Step 1: create or upsert entity
+        await callMemoryTool("create_entities", {
+          entities: [{ name, entityType: type, observations: [params.text] }],
+        });
+        return { success: true, data: { stored: true, entity: name } };
       },
     },
     search: {

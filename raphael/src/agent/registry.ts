@@ -248,13 +248,13 @@ export function initRegistry(services: ServiceMap): ToolRegistry {
     services.files.readFile,
   );
 
-  // ── memory ────────────────────────────────────────────────────────────
+  // ── memory (MCP server-memory) ────────────────────────────────────────
   r.register(
     {
       name: "memory.query",
-      description: "Search the knowledge graph for entities and relationships related to a topic. Returns a synthesized text summary of relevant graph context.",
+      description: "Search the personal memory graph for facts about people, preferences, or events. Returns a list of matching entities and their observations.",
       parameters: {
-        query: { type: "string", description: "Plain text query, e.g. 'What is Priya's job?' or 'machine learning projects'" },
+        query: { type: "string", description: "Plain text query, e.g. 'What is Sarah's job?' or 'user preferences'" },
       },
       type: "builtin",
     },
@@ -272,9 +272,11 @@ export function initRegistry(services: ServiceMap): ToolRegistry {
   r.register(
     {
       name: "memory.store",
-      description: "Store facts and relationships into the central memory graph. Use this when you learn something worth remembering.",
+      description: "Store a fact into the personal memory graph. Use this when the user tells you something worth remembering — a person, preference, project, or event.",
       parameters: {
-        text: { type: "string", description: "The factual text to append to the memory log. E.g. 'User likes dark mode' or 'Priya works at Google'." },
+        text: { type: "string", description: "The factual statement to remember. E.g. 'Sarah works at Acme Corp' or 'User prefers concise answers'." },
+        entityName: { type: "string", description: "Optional: the name of the entity this fact is about (e.g. 'Sarah'). Auto-generated if omitted." },
+        entityType: { type: "string", description: "Optional: category of entity — 'person', 'project', 'preference', 'event'. Defaults to 'fact'." },
       },
       type: "builtin",
     },
