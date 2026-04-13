@@ -94,7 +94,7 @@ pub fn clear_logs() -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn send_email(
+pub async fn send_email(
     from: String,
     to: String,
     subject: String,
@@ -102,18 +102,15 @@ pub fn send_email(
 ) -> Result<(), String> {
     log_to_file(&format!("send_email: from={} to={} subject={}", from, to, subject));
 
-    let access_token = crate::google_oauth::get_valid_access_token(store_dir())?;
+    let access_token = crate::google_oauth::get_valid_access_token(store_dir()).await?;
 
-    let rt = tokio::runtime::Handle::try_current()
-        .map_err(|_| "No tokio runtime available".to_string())?;
-
-    rt.block_on(crate::gmail_api::send_email(
+    crate::gmail_api::send_email(
         &access_token,
         &from,
         &to,
         &subject,
         &body,
-    ))?;
+    ).await?;
 
     log_to_file("send_email: success via Gmail API");
     Ok(())

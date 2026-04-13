@@ -192,8 +192,7 @@ async fn exchange_code(
 }
 
 /// Returns a valid access token, refreshing if expired.
-/// Called from sync Tauri commands — uses block_on via the existing tokio runtime handle.
-pub fn get_valid_access_token(store_dir: PathBuf) -> Result<String, String> {
+pub async fn get_valid_access_token(store_dir: PathBuf) -> Result<String, String> {
     let store = SecureStore::new(store_dir.clone())?;
 
     let expiry_str = store
@@ -212,7 +211,6 @@ pub fn get_valid_access_token(store_dir: PathBuf) -> Result<String, String> {
     let now = chrono::Utc::now().timestamp() as u64;
 
     if now < expiry {
-        // Token still valid
         let token = store
             .get("google_access_token")?
             .ok_or("Missing access token".to_string())?;
@@ -222,10 +220,8 @@ pub fn get_valid_access_token(store_dir: PathBuf) -> Result<String, String> {
         return Ok(token);
     }
 
-    // Expired — refresh using the tokio runtime
-    let rt = tokio::runtime::Handle::try_current()
-        .map_err(|_| "No tokio runtime available".to_string())?;
-    rt.block_on(refresh_access_token(store_dir))
+    // Expired — refresh
+    refresh_access_token(store_dir).await
 }
 
 async fn refresh_access_token(store_dir: PathBuf) -> Result<String, String> {
