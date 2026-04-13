@@ -1,4 +1,64 @@
+use crate::graph::{GraphEdge, GraphNode};
 use crate::secure_store::SecureStore;
+
+#[derive(Deserialize)]
+pub struct AddToGraphParams {
+    pub nodes: Vec<GraphNode>,
+    pub edges: Vec<GraphEdge>,
+    pub source_text: String,
+}
+
+#[tauri::command]
+pub fn add_to_graph(params: AddToGraphParams) -> Result<(), String> {
+    let dir = store_dir();
+    log_to_file(&format!(
+        "add_to_graph: {} nodes, {} edges",
+        params.nodes.len(),
+        params.edges.len()
+    ));
+
+    if let Ok(json) = serde_json::to_string(&serde_json::json!({
+        "nodes": &params.nodes,
+        "edges": &params.edges,
+    })) {
+        let _ = crate::graph_cache::save_cached(&params.source_text, &json, &dir);
+    }
+
+    let mut graph = crate::graph::load_graph(&dir);
+    crate::graph::merge(&mut graph, params.nodes, params.edges);
+    crate::graph::save_graph(&dir, &graph)?;
+
+    log_to_file("add_to_graph: saved");
+    Ok(())
+}
+
+#[tauri::command]
+pub fn query_graph(query: String, depth: Option<usize>) -> Result<crate::graph::QueryResult, String> {
+    let dir = store_dir();
+    log_to_file(&format!("query_graph: '{}'", query));
+    let graph = crate::graph::load_graph(&dir);
+    let result = crate::graph::query_graph(&graph, &query, depth.unwrap_or(2), 3);
+    log_to_file(&format!(
+        "query_graph result: {} nodes, {} edges",
+        result.nodes.len(),
+        result.edges.len()
+    ));
+    Ok(result)
+}
+
+#[tauri::command]
+pub fn get_graph_stats() -> Result<crate::graph::GraphStats, String> {
+    let dir = store_dir();
+    log_to_file("get_graph_stats");
+    let graph = crate::graph::load_graph(&dir);
+    Ok(crate::graph::compute_stats(&graph))
+}
+
+#[tauri::command]
+pub fn check_graph_cache(text: String) -> Option<String> {
+    let dir = store_dir();
+    crate::graph_cache::load_cached(&text, &dir)
+}
 use dirs::data_dir;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};

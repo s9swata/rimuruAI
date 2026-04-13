@@ -3,6 +3,8 @@ mod secure_store;
 mod search;
 mod google_oauth;
 mod gmail_api;
+mod graph;
+mod graph_cache;
 
 use tauri::{
     menu::{Menu, MenuItem},
@@ -67,6 +69,10 @@ pub fn run() {
             commands::load_profile,
             commands::update_profile,
             commands::http_fetch,
+            commands::add_to_graph,
+            commands::query_graph,
+            commands::get_graph_stats,
+            commands::check_graph_cache,
             search::search_web,
         ])
         .run(tauri::generate_context!())
