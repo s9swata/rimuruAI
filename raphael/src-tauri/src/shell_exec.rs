@@ -3,6 +3,7 @@ use std::io::Write;
 use std::sync::{Arc, Mutex};
 use std::process::{Child, ChildStdin, Stdio};
 
+use portable_pty::{CommandBuilder, MasterPty, NativePtySystem, PtySize, PtySystem};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
@@ -12,18 +13,20 @@ use tauri::{AppHandle, Emitter};
 
 /// A live process slot stored in the registry.
 pub(crate) struct ProcessSlot {
-    stdin: ChildStdin,
-    child: Child,
+    writer: Box<dyn Write + Send>,
+    // PTY master kept alive for the duration of the process (dropping it closes the PTY).
+    // None for pipe-mode processes.
+    _master: Option<Box<dyn MasterPty + Send>>,
+    // Raw pipe child — only set in pipe mode.
+    _child: Option<Child>,
 }
 
 /// Payload emitted to the frontend for every line of output from a process.
 #[derive(Clone, Serialize)]
 pub struct ProcessOutputPayload {
-    /// Unique process ID assigned at spawn time.
     pub id: String,
-    /// The raw output line (from stdout or stderr).
     pub line: String,
-    /// Whether the line came from stderr.
+    /// Always false with PTY (stdout+stderr merged into one stream).
     pub is_stderr: bool,
 }
 
@@ -38,152 +41,202 @@ pub struct ProcessExitPayload {
 //  Global process registry
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// A thread-safe map of process-id → ProcessSlot.
-/// Wrapped in an Arc so it can be shared across Tauri command threads.
 pub type ProcessRegistry = Arc<Mutex<HashMap<String, ProcessSlot>>>;
 
-/// Create a new, empty registry. Call this once in `lib.rs` and store it in
-/// Tauri's managed state.
 pub fn new_registry() -> ProcessRegistry {
     Arc::new(Mutex::new(HashMap::new()))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  spawn_process
+//  spawn_process  (PTY-backed)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Spawns `program` with `args` as a long-running child process.
+/// Spawns `sh -c <command>` inside a PTY so programs flush output immediately,
+/// exactly as they would in a real terminal.
 ///
-/// Stdout and stderr are captured line-by-line and forwarded to the frontend
-/// via Tauri events:
+/// Events emitted to the frontend:
 ///   - `"process-output"` → `ProcessOutputPayload`
 ///   - `"process-exit"`   → `ProcessExitPayload`
-///
-/// Returns the process UUID so the frontend can target future stdin writes.
 #[tauri::command]
 pub async fn spawn_process(
     program: String,
     args: Vec<String>,
+    cwd: Option<String>,
+    use_pty: Option<bool>,
     registry: tauri::State<'_, ProcessRegistry>,
     app: AppHandle,
 ) -> Result<String, String> {
     let id = uuid();
-    log(&app, &format!("[spawn_process] id={} program={} args={:?}", id, program, args));
+    let working_dir = cwd
+        .filter(|s| !s.is_empty())
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/")));
+    let pty = use_pty.unwrap_or(true);
 
+    log(&app, &format!(
+        "[spawn_process] id={} program={} args={:?} cwd={:?} pty={}",
+        id, program, args, working_dir, pty
+    ));
+
+    if pty {
+        spawn_pty(id, program, args, working_dir, registry, app).await
+    } else {
+        spawn_pipes(id, program, args, working_dir, registry, app).await
+    }
+}
+
+/// PTY-backed spawn — programs see a real terminal, output is line-buffered immediately.
+async fn spawn_pty(
+    id: String,
+    program: String,
+    args: Vec<String>,
+    working_dir: std::path::PathBuf,
+    registry: tauri::State<'_, ProcessRegistry>,
+    app: AppHandle,
+) -> Result<String, String> {
+    let pty_system = NativePtySystem::default();
+    let pair = pty_system
+        .openpty(PtySize { rows: 24, cols: 200, pixel_width: 0, pixel_height: 0 })
+        .map_err(|e| format!("Failed to open PTY: {}", e))?;
+
+    let mut cmd = CommandBuilder::new(&program);
+    for arg in &args { cmd.arg(arg); }
+    cmd.cwd(&working_dir);
+    cmd.env("TERM", "xterm-256color");
+    cmd.env("HOME", dirs::home_dir().unwrap_or_default().to_string_lossy().as_ref());
+    if let Ok(path) = std::env::var("PATH") { cmd.env("PATH", path); }
+
+    let mut child = pair.slave.spawn_command(cmd)
+        .map_err(|e| format!("Failed to spawn '{}': {}", program, e))?;
+    drop(pair.slave);
+
+    let writer = pair.master.take_writer()
+        .map_err(|e| format!("Failed to get PTY writer: {}", e))?;
+    let reader = pair.master.try_clone_reader()
+        .map_err(|e| format!("Failed to get PTY reader: {}", e))?;
+
+    {
+        let id_clone = id.clone();
+        let app_clone = app.clone();
+        std::thread::spawn(move || {
+            use std::io::BufRead;
+            for line in std::io::BufReader::new(reader).lines() {
+                match line {
+                    Ok(text) => { let _ = app_clone.emit("process-output", ProcessOutputPayload { id: id_clone.clone(), line: strip_ansi(&text), is_stderr: false }); }
+                    Err(_) => break,
+                }
+            }
+        });
+    }
+
+    {
+        let id_clone = id.clone();
+        let app_clone = app.clone();
+        let registry_clone = Arc::clone(&*registry);
+        std::thread::spawn(move || {
+            let code = child.wait().ok().map(|s| s.exit_code() as i32);
+            if let Ok(mut map) = registry_clone.lock() { map.remove(&id_clone); }
+            let _ = app_clone.emit("process-exit", ProcessExitPayload { id: id_clone, code });
+        });
+    }
+
+    {
+        let mut map = registry.lock().map_err(|e| e.to_string())?;
+        map.insert(id.clone(), ProcessSlot { writer, _master: Some(pair.master), _child: None });
+    }
+
+    log(&app, &format!("[spawn_process/pty] spawned id={}", id));
+    Ok(id)
+}
+
+/// Pipe-backed spawn — stdout/stderr are separate streams, no terminal echo.
+/// Used for MCP stdio servers and any process that must not have PTY interference.
+async fn spawn_pipes(
+    id: String,
+    program: String,
+    args: Vec<String>,
+    working_dir: std::path::PathBuf,
+    registry: tauri::State<'_, ProcessRegistry>,
+    app: AppHandle,
+) -> Result<String, String> {
     let mut child = std::process::Command::new(&program)
         .args(&args)
+        .current_dir(&working_dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("Failed to spawn '{}': {}", program, e))?;
 
-    let stdin = child.stdin.take().ok_or("Could not capture stdin")?;
+    let stdin: Box<dyn Write + Send> = Box::new(child.stdin.take().ok_or("Could not capture stdin")?);
     let stdout = child.stdout.take().ok_or("Could not capture stdout")?;
     let stderr = child.stderr.take().ok_or("Could not capture stderr")?;
 
-    // ── Stream stdout ────────────────────────────────────────────────────────
+    // Stream stdout
     {
         let id_clone = id.clone();
         let app_clone = app.clone();
         std::thread::spawn(move || {
             use std::io::BufRead;
-            let reader = std::io::BufReader::new(stdout);
-            for line in reader.lines() {
+            for line in std::io::BufReader::new(stdout).lines() {
                 match line {
-                    Ok(text) => {
-                        let _ = app_clone.emit(
-                            "process-output",
-                            ProcessOutputPayload {
-                                id: id_clone.clone(),
-                                line: text,
-                                is_stderr: false,
-                            },
-                        );
-                    }
+                    Ok(text) => { let _ = app_clone.emit("process-output", ProcessOutputPayload { id: id_clone.clone(), line: text, is_stderr: false }); }
                     Err(_) => break,
                 }
             }
         });
     }
 
-    // ── Stream stderr ────────────────────────────────────────────────────────
+    // Stream stderr
     {
         let id_clone = id.clone();
         let app_clone = app.clone();
         std::thread::spawn(move || {
             use std::io::BufRead;
-            let reader = std::io::BufReader::new(stderr);
-            for line in reader.lines() {
+            for line in std::io::BufReader::new(stderr).lines() {
                 match line {
-                    Ok(text) => {
-                        let _ = app_clone.emit(
-                            "process-output",
-                            ProcessOutputPayload {
-                                id: id_clone.clone(),
-                                line: text,
-                                is_stderr: true,
-                            },
-                        );
-                    }
+                    Ok(text) => { let _ = app_clone.emit("process-output", ProcessOutputPayload { id: id_clone.clone(), line: text, is_stderr: true }); }
                     Err(_) => break,
                 }
             }
         });
     }
 
-    // ── Watch for exit and emit process-exit event ───────────────────────────
+    // Watch for exit
     {
         let id_clone = id.clone();
         let app_clone = app.clone();
         let registry_clone = Arc::clone(&*registry);
         std::thread::spawn(move || {
-            // Poll for exit without holding the lock indefinitely.
-            // If we held the lock while waiting, all other shell commands (like write_to_process)
-            // would deadlock instantly.
             loop {
                 std::thread::sleep(std::time::Duration::from_millis(100));
-
                 let result = {
-                    let mut map = match registry_clone.lock() {
-                        Ok(m) => m,
-                        Err(_) => break, // Poisioned lock
-                    };
-                    
+                    let mut map = match registry_clone.lock() { Ok(m) => m, Err(_) => break };
                     if let Some(slot) = map.get_mut(&id_clone) {
-                        match slot.child.try_wait() {
-                            Ok(Some(status)) => Some(status.code()),
-                            Ok(None) => continue, // Still running, release lock and loop
-                            Err(_) => Some(None), // Error
-                        }
-                    } else {
-                        // Slot was manually removed (e.g. killed)
-                        break;
-                    }
+                        if let Some(child) = slot._child.as_mut() {
+                            match child.try_wait() {
+                                Ok(Some(status)) => Some(status.code()),
+                                Ok(None) => { continue; }
+                                Err(_) => Some(None),
+                            }
+                        } else { break }
+                    } else { break }
                 };
-
-                // If we reach here, the process exited (Some(code))
                 if let Some(code) = result {
-                    if let Ok(mut map) = registry_clone.lock() {
-                        map.remove(&id_clone);
-                    }
-                    let _ = app_clone.emit(
-                        "process-exit",
-                        ProcessExitPayload { id: id_clone, code },
-                    );
+                    if let Ok(mut map) = registry_clone.lock() { map.remove(&id_clone); }
+                    let _ = app_clone.emit("process-exit", ProcessExitPayload { id: id_clone, code });
+                    break;
                 }
-                break;
             }
         });
     }
 
-    // ── Store slot in registry ───────────────────────────────────────────────
     {
         let mut map = registry.lock().map_err(|e| e.to_string())?;
-        map.insert(id.clone(), ProcessSlot { stdin, child });
+        map.insert(id.clone(), ProcessSlot { writer: stdin, _master: None, _child: Some(child) });
     }
 
-    log(&app, &format!("[spawn_process] spawned id={}", id));
+    log(&app, &format!("[spawn_process/pipes] spawned id={}", id));
     Ok(id)
 }
 
@@ -191,8 +244,6 @@ pub async fn spawn_process(
 //  write_to_process
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Writes `payload` (as raw bytes + newline) to the stdin of the process
-/// identified by `id`. Used to send JSON-RPC messages to MCP servers.
 #[tauri::command]
 pub fn write_to_process(
     id: String,
@@ -208,10 +259,9 @@ pub fn write_to_process(
         .ok_or_else(|| format!("No active process with id '{}'", id))?;
 
     let bytes = format!("{}\n", payload);
-    slot.stdin
-        .write_all(bytes.as_bytes())
-        .map_err(|e| format!("Failed to write to process stdin: {}", e))?;
-    slot.stdin.flush().map_err(|e| e.to_string())?;
+    slot.writer.write_all(bytes.as_bytes())
+        .map_err(|e| format!("Failed to write to process: {}", e))?;
+    slot.writer.flush().map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -220,8 +270,6 @@ pub fn write_to_process(
 //  kill_process
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Forcefully terminates the process identified by `id` and removes it from
-/// the registry. Safe to call even if the process has already exited.
 #[tauri::command]
 pub fn kill_process(
     id: String,
@@ -231,9 +279,7 @@ pub fn kill_process(
     log(&app, &format!("[kill_process] id={}", id));
 
     let mut map = registry.lock().map_err(|e| e.to_string())?;
-    if let Some(mut slot) = map.remove(&id) {
-        slot.child.kill().unwrap_or_default();
-    }
+    map.remove(&id); // dropping MasterPty closes the PTY, killing the child
     Ok(())
 }
 
@@ -241,11 +287,8 @@ pub fn kill_process(
 //  list_processes
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Returns a list of all currently-running managed process IDs.
 #[tauri::command]
-pub fn list_processes(
-    registry: tauri::State<'_, ProcessRegistry>,
-) -> Vec<String> {
+pub fn list_processes(registry: tauri::State<'_, ProcessRegistry>) -> Vec<String> {
     registry
         .lock()
         .map(|m| m.keys().cloned().collect())
@@ -255,6 +298,29 @@ pub fn list_processes(
 // ─────────────────────────────────────────────────────────────────────────────
 //  Helpers
 // ─────────────────────────────────────────────────────────────────────────────
+
+/// Strip ANSI/VT escape sequences so the UI renders clean text.
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            // ESC [ ... final-byte  (CSI sequences)
+            if chars.peek() == Some(&'[') {
+                chars.next();
+                for c2 in chars.by_ref() {
+                    if c2.is_ascii_alphabetic() { break; }
+                }
+            } else {
+                // Other escape sequences: skip next char
+                chars.next();
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
 
 fn uuid() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -270,7 +336,6 @@ fn uuid() -> String {
 }
 
 fn log(app: &AppHandle, msg: &str) {
-    use std::io::Write as _;
     use std::fs::OpenOptions;
     use dirs::data_dir;
 
@@ -287,6 +352,5 @@ fn log(app: &AppHandle, msg: &str) {
             msg
         );
     }
-    // Also suppress the unused AppHandle warning by touching it
     let _ = app;
 }

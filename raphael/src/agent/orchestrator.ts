@@ -1,8 +1,7 @@
-import { generateObject } from "ai";
-import { z } from "zod";
+import { generateText } from "ai";
 import { MODELS, buildSystemPrompt } from "./prompts";
 import { PersonaConfig } from "../config/types";
-import { getGroqProvider } from "./groq";
+import { withGroqRetry } from "./providers";
 import { ToolRegistry } from "./registry";
 
 export interface OrchestratorResult {
@@ -12,15 +11,22 @@ export interface OrchestratorResult {
   intent: string;
 }
 
-/**
- * Analyze the user's message and decide which tool (if any) to call.
- *
- * @param userMessage   - latest message from the user
- * @param history       - prior conversation turns
- * @param persona       - user's configured persona
- * @param profileContext - saved profile facts about the user
- * @param registry      - the live ToolRegistry; used to build the tool list in the prompt
- */
+const FALLBACK: OrchestratorResult = { model: "fast", tool: null, params: null, intent: "direct response" };
+
+function parseOrchestration(raw: string): OrchestratorResult {
+  // Strip markdown code fences if present
+  const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+  // Extract first JSON object
+  const match = cleaned.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error("No JSON object found in response");
+  const parsed = JSON.parse(match[0]);
+  if (!parsed.model || !["fast", "powerful"].includes(parsed.model)) parsed.model = "fast";
+  if (!("tool" in parsed)) parsed.tool = null;
+  if (!("params" in parsed)) parsed.params = null;
+  if (!parsed.intent) parsed.intent = "direct response";
+  return parsed as OrchestratorResult;
+}
+
 export async function orchestrate(
   userMessage: string,
   history: Array<{ role: "user" | "assistant"; content: string }>,
@@ -28,9 +34,8 @@ export async function orchestrate(
   profileContext: string,
   registry: ToolRegistry,
 ): Promise<OrchestratorResult> {
-  console.log("[Orchestrator] Starting orchestration (via Vercel AI SDK)...");
+  console.log("[Orchestrator] Starting orchestration...");
 
-  const groq = await getGroqProvider();
   const toolList = registry.toPromptString();
   const systemPrompt = buildSystemPrompt("orchestrator", persona, profileContext, toolList);
 
@@ -41,28 +46,24 @@ export async function orchestrate(
   ];
 
   try {
-    console.log("[Orchestrator] Calling generateObject...");
+    console.log("[Orchestrator] Calling generateText via Groq (with retry)...");
 
-    const { object, finishReason, usage } = await generateObject({
-      model: groq(MODELS.orchestrator),
-      providerOptions: { groq: { structuredOutputs: false } },
-      messages,
-      schema: z.object({
-        model: z.enum(["fast", "powerful"]).describe("Which model tier to use for the user response"),
-        tool: z.string().nullable().describe("The name of the tool to execute, or null if no tool needed"),
-        params: z.record(z.string(), z.unknown()).nullable().describe("The parameters to pass into the tool, or null"),
-        intent: z.string().describe("A brief description of what you are doing in response to the user query"),
-      }),
+    const { text, finishReason, usage } = await withGroqRetry(async (provider) => {
+      const model = provider(MODELS.orchestrator);
+      return generateText({
+        model,
+        messages,
+        temperature: 0,
+      });
     });
 
-    console.log("[Orchestrator] Parsed result:", object, "finishReason:", finishReason, "usage:", usage);
-    return object;
+    console.log("[Orchestrator] Raw response:", text, "finishReason:", finishReason, "usage:", usage);
+
+    const result = parseOrchestration(text);
+    console.log("[Orchestrator] Parsed result:", result);
+    return result;
   } catch (e) {
-    console.error("[Orchestrator] Error generating object:", e);
-    const errMsg = String(e);
-    if (errMsg.includes("failed_generation")) {
-      console.error("[Orchestrator] LLM failed to generate valid JSON. Prompt may need adjustment.");
-    }
-    throw e;
+    console.error("[Orchestrator] Error:", String(e));
+    return FALLBACK;
   }
 }

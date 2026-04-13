@@ -1,17 +1,6 @@
-import { createGroq } from "@ai-sdk/groq";
 import { streamText } from "ai";
-import { invoke } from "@tauri-apps/api/core";
-
-let _apiKey: string | null = null;
-
-export async function getGroqProvider() {
-  if (!_apiKey) {
-    _apiKey = await invoke<string | null>("get_secret", { key: "groq_api_key" });
-    console.log("[Groq] Got API key:", _apiKey ? "yes" : "no");
-    if (!_apiKey) throw new Error("Groq API key not configured");
-  }
-  return createGroq({ apiKey: _apiKey });
-}
+import { MODELS } from "./prompts";
+import { withGroqRetry, getGeminiProvider } from "./providers";
 
 export async function streamChat(
   model: string,
@@ -19,26 +8,46 @@ export async function streamChat(
   onChunk: (chunk: string) => void,
   onDone: () => void,
 ): Promise<void> {
-  console.log("[Groq] streamChat called with model:", model);
-  
-  const groq = await getGroqProvider();
-  console.log("[Groq] Calling createGroq provider via Vercel AI SDK...");
-  
+  console.log("[streamChat] model:", model);
+
+  // Groq is primary with automatic key rotation + rate-limit retry.
+  // Gemini is fallback only if Groq exhausts all retries / all keys are limited.
+  let textStream: AsyncIterable<string>;
+
   try {
-    const { textStream } = streamText({
-      model: groq(model),
+    const result = await withGroqRetry(async (provider) => {
+      const modelInstance = provider(model);
+      return streamText({
+        model: modelInstance,
+        messages,
+        temperature: 0.7,
+      });
+    });
+    textStream = result.textStream;
+    console.log("[streamChat] using Groq provider:", model);
+  } catch (e) {
+    console.error("[streamChat] Groq failed, falling back to Gemini:", e);
+    const { provider: gemini } = await getGeminiProvider();
+    const result = streamText({
+      model: gemini("gemini-flash-latest"),
       messages,
       temperature: 0.7,
     });
-    
-    console.log("[Groq] streamText started");
+    textStream = result.textStream;
+    console.log("[streamChat] using Gemini fallback");
+  }
+
+  try {
     for await (const chunk of textStream) {
       if (chunk) onChunk(chunk);
     }
-    console.log("[Groq] Stream done (AI SDK)");
+    console.log("[streamChat] stream done");
     onDone();
   } catch (e) {
-    console.error("[Groq] AI SDK stream error:", e);
+    console.error("[streamChat] streamText error:", String(e));
     throw e;
   }
 }
+
+export { getGroqProvider } from "./providers";
+export { MODELS };

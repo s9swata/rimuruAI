@@ -23,10 +23,19 @@ export interface EmailDraftState {
   body: string;
 }
 
+export interface ShellCardState {
+  id: string;
+  command: string;
+  status: "running" | "done" | "error";
+  lines: string[];
+  exitCode?: number;
+}
+
 export type ChatItem =
   | { type: "message"; data: ChatMessage }
   | { type: "tool"; data: ToolCardState }
-  | { type: "email"; data: EmailDraftState };
+  | { type: "email"; data: EmailDraftState }
+  | { type: "shell"; data: ShellCardState };
 
 interface ChatState {
   items: ChatItem[];
@@ -40,6 +49,9 @@ type ChatAction =
   | { type: "UPDATE_TOOL"; id: string; status: ToolCardState["status"]; result?: string }
   | { type: "ADD_EMAIL"; draft: EmailDraftState }
   | { type: "UPDATE_EMAIL"; id: string; patch: Partial<EmailDraftState> }
+  | { type: "ADD_SHELL"; card: ShellCardState }
+  | { type: "APPEND_SHELL_LINE"; id: string; line: string; isStderr: boolean }
+  | { type: "FINISH_SHELL"; id: string; exitCode: number | null }
   | { type: "REMOVE"; id: string };
 
 const ADD_MESSAGE = "ADD_MESSAGE";
@@ -49,6 +61,9 @@ const ADD_TOOL = "ADD_TOOL";
 const UPDATE_TOOL = "UPDATE_TOOL";
 const ADD_EMAIL = "ADD_EMAIL";
 const UPDATE_EMAIL = "UPDATE_EMAIL";
+const ADD_SHELL = "ADD_SHELL";
+const APPEND_SHELL_LINE = "APPEND_SHELL_LINE";
+const FINISH_SHELL = "FINISH_SHELL";
 const REMOVE = "REMOVE";
 
 function reducer(state: ChatState, action: ChatAction): ChatState {
@@ -91,6 +106,24 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
             : item
         ),
       };
+    case ADD_SHELL:
+      return { items: [...state.items, { type: "shell", data: action.card }] };
+    case APPEND_SHELL_LINE:
+      return {
+        items: state.items.map((item) =>
+          item.type === "shell" && item.data.id === action.id
+            ? { ...item, data: { ...item.data, lines: [...item.data.lines, (action.isStderr ? "[stderr] " : "") + action.line] } }
+            : item
+        ),
+      };
+    case FINISH_SHELL:
+      return {
+        items: state.items.map((item) =>
+          item.type === "shell" && item.data.id === action.id
+            ? { ...item, data: { ...item.data, status: action.exitCode === 0 ? "done" : "error", exitCode: action.exitCode ?? undefined } }
+            : item
+        ),
+      };
     case REMOVE:
       return { items: state.items.filter((i) => i.data.id !== action.id) };
     default:
@@ -111,5 +144,8 @@ export {
   UPDATE_TOOL,
   ADD_EMAIL,
   UPDATE_EMAIL,
+  ADD_SHELL,
+  APPEND_SHELL_LINE,
+  FINISH_SHELL,
   REMOVE,
 };

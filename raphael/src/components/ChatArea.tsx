@@ -3,6 +3,7 @@ import { ChatItem } from "../store/chat";
 import MessageBubble from "./MessageBubble";
 import ToolCard from "./ToolCard";
 import EmailComposer from "./EmailComposer";
+import ShellCard from "./ShellCard";
 
 interface Props {
   items: ChatItem[];
@@ -39,6 +40,8 @@ export default function ChatArea({
               onDiscard={() => onEmailDiscard(item.data.id)}
             />
           );
+        if (item.type === "shell")
+          return <ShellCard key={item.data.id} card={item.data} />;
         return null;
       })}
       <div ref={bottomRef} />

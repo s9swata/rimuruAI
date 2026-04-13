@@ -12,6 +12,7 @@ export async function loadConfig(): Promise<RaphaelConfig> {
       ...parsed,
       persona: { ...DEFAULT_CONFIG.persona, ...(parsed.persona ?? {}) },
       tools: { ...DEFAULT_CONFIG.tools, ...(parsed.tools ?? {}) },
+      mcpServers: parsed.mcpServers ?? DEFAULT_CONFIG.mcpServers,
     };
   } catch {
     return DEFAULT_CONFIG;

@@ -74,6 +74,8 @@ export class BackendStdioTransport implements Transport {
     this._processId = await invoke<string>("spawn_process", {
       program: this._program,
       args: this._args,
+      cwd: null,
+      usePty: false,
     });
 
     const pid = this._processId;

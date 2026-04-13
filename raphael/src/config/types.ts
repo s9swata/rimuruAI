@@ -4,6 +4,13 @@ export interface ToolConfig {
 
 export type TrustLevel = "supervised" | "balanced" | "autonomous";
 
+export interface McpServerConfig {
+  name: string;
+  command: string;
+  args: string[];
+  enabled: boolean;
+}
+
 export interface PersonaConfig {
   address: string;
   tone: "jarvis" | "professional" | "friendly";
@@ -16,33 +23,36 @@ export interface RaphaelConfig {
   tools: Record<string, ToolConfig>;
   watchedFolders: string[];
   hotkey: string;
+  mcpServers: McpServerConfig[];
 }
 
 export const DEFAULT_CONFIG: RaphaelConfig = {
   persona: { address: "sir", tone: "jarvis", verbosity: "terse" },
   trustLevel: "balanced",
   tools: {
-    "gmail.sendEmail":              { requiresApproval: true },
-    "gmail.draftEmail":             { requiresApproval: false },
-    "calendar.createEvent":         { requiresApproval: true },
-    "calendar.listEvents":          { requiresApproval: false },
-    "calendar.checkAvailability":   { requiresApproval: false },
-    "x.getTimeline":                { requiresApproval: false },
-    "x.getMentions":                { requiresApproval: false },
-    "x.searchTweets":               { requiresApproval: false },
-    "files.searchFiles":            { requiresApproval: false },
-    "files.readFile":               { requiresApproval: false },
-    "memory.query":                 { requiresApproval: false },
-    "search.query":                 { requiresApproval: false },
+    "gmail.sendEmail": { requiresApproval: true },
+    "gmail.draftEmail": { requiresApproval: false },
+    "calendar.createEvent": { requiresApproval: true },
+    "calendar.listEvents": { requiresApproval: false },
+    "calendar.checkAvailability": { requiresApproval: false },
+    "x.getTimeline": { requiresApproval: false },
+    "x.getMentions": { requiresApproval: false },
+    "x.searchTweets": { requiresApproval: false },
+    "files.searchFiles": { requiresApproval: false },
+    "files.readFile": { requiresApproval: false },
+    "memory.query": { requiresApproval: false },
+    "search.query": { requiresApproval: true },
   },
   watchedFolders: [],
   hotkey: "Super+Shift+Space",
+  mcpServers: [],
 };
 
-export function applyTrustLevel(config: RaphaelConfig, level: TrustLevel): RaphaelConfig {
-  const sideEffecting = new Set([
-    "gmail.sendEmail", "calendar.createEvent",
-  ]);
+export function applyTrustLevel(
+  config: RaphaelConfig,
+  level: TrustLevel,
+): RaphaelConfig {
+  const sideEffecting = new Set(["gmail.sendEmail", "calendar.createEvent"]);
   const tools = { ...config.tools };
   for (const key of Object.keys(tools)) {
     if (level === "supervised") {

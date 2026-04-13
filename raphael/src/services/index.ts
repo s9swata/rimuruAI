@@ -51,8 +51,29 @@ export async function createServices(): Promise<ServiceMap> {
       searchTweets: async () => ({ success: true, data: [] }),
     },
     files: {
-      searchFiles: async () => ({ success: true, data: [] }),
-      readFile: async () => ({ success: true, data: { path: "", content: "" } }),
+      searchFiles: async (p) => {
+        const params = p as { query?: string };
+        const query = params.query ?? "";
+        const lastSlash = query.lastIndexOf("/");
+        const dir = lastSlash >= 0 ? query.slice(0, lastSlash) || "/" : "/";
+        const pattern = lastSlash >= 0 ? query.slice(lastSlash + 1) : query;
+        try {
+          const files = await invoke<string[]>("list_files", { dir, pattern });
+          return { success: true, data: { files } };
+        } catch (e) {
+          return { success: false, error: String(e) };
+        }
+      },
+      readFile: async (p) => {
+        const params = p as { path?: string };
+        const path = params.path ?? "";
+        try {
+          const content = await invoke<string>("read_file_content", { path });
+          return { success: true, data: { path, content } };
+        } catch (e) {
+          return { success: false, error: String(e) };
+        }
+      },
     },
     memory: {
       // ── Backed by @modelcontextprotocol/server-memory via Rust stdio ──────

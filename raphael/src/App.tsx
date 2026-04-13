@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import Onboarding from "./components/Onboarding";
 import ChatArea from "./components/ChatArea";
 import InputBar from "./components/InputBar";
 import CalendarView from "./components/CalendarView";
 import SettingsPanel from "./components/SettingsPanel";
-import { useChatStore } from "./store/chat";
+import ApprovalDialog from "./components/ApprovalDialog";
+import { useChatStore, ADD_SHELL, APPEND_SHELL_LINE, FINISH_SHELL } from "./store/chat";
 import { useCalendarStore } from "./calendar/store";
 import { loadConfig } from "./config/loader";
 import { RaphaelConfig, DEFAULT_CONFIG } from "./config/types";
@@ -39,7 +41,7 @@ function DebugPanel() {
     return (
       <button
         onClick={() => setShow(true)}
-        style={{ position: "fixed", bottom: 4, right: 4, opacity: 0.3, fontSize: 10, padding: "2px 4px" }}
+        style={{ position: "fixed", top: 8, left: 8, opacity: 0.3, fontSize: 10, padding: "2px 4px", zIndex: 1000 }}
       >
         Logs
       </button>
@@ -87,15 +89,21 @@ export default function App() {
   const [thinking, setThinking] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [profileContent, setProfileContent] = useState<string>("");
+  const [pendingApproval, setPendingApproval] = useState<{ cardId: string; tool: string; params: Record<string, unknown> } | null>(null);
+  const approvalResolveRef = useRef<((ok: boolean) => void) | null>(null);
   const { state, dispatch: chatDispatch } = useChatStore();
   const loadFromGist = useCalendarStore((s) => s.loadFromGist);
   const registryRef = useRef<ToolRegistry | null>(null);
 
   useEffect(() => {
-    invoke<string | null>("get_secret", { key: "groq_api_key" })
-      .then((key) => {
-        console.log("Groq key found:", !!key);
-        setReady(!!key);
+    // Ready if either Gemini key (preferred) or Groq key (legacy) is set
+    Promise.all([
+      invoke<string | null>("get_secret", { key: "gemini_api_key" }),
+      invoke<string | null>("get_secret", { key: "groq_api_key" }),
+    ])
+      .then(([gemini, groq]) => {
+        console.log("Gemini key:", !!gemini, "Groq key:", !!groq);
+        setReady(!!(gemini || groq));
       })
       .catch((e) => {
         console.error("Failed to get secret:", e);
@@ -111,7 +119,69 @@ loadConfig()
 
     createServices()
       .then((services) => {
-        registryRef.current = initRegistry(services);
+        const registry = initRegistry(services);
+
+        // shell.run — agent-invocable tool that runs a shell command and streams output to the UI
+        registry.register(
+          {
+            name: "shell.run",
+            description: "Run a shell command on the user's machine and stream its output. Use for file operations, running scripts, checking system state, or any terminal task.",
+            parameters: {
+              command: { type: "string", description: "The shell command to run, e.g. 'ls -la' or 'git status'" },
+              cwd: { type: "string", description: "Working directory for the command. Defaults to user home dir if omitted." },
+            },
+            type: "builtin",
+          },
+          async (params) => {
+            const command = String(params.command ?? "").trim();
+            if (!command) return { success: false, error: "command is required" };
+            const cwd = params.cwd ? String(params.cwd) : undefined;
+
+            const cardId = crypto.randomUUID();
+            chatDispatch({ type: ADD_SHELL, card: { id: cardId, command, status: "running", lines: [] } });
+
+            try {
+              const procId = await invoke<string>("spawn_process", { program: "sh", args: ["-c", command], cwd: cwd ?? null });
+              const collectedLines: string[] = [];
+
+              return await new Promise<{ success: boolean; data?: unknown; error?: string }>((resolve) => {
+                const unlistenOutput = listen<{ id: string; line: string; is_stderr: boolean }>(
+                  "process-output",
+                  (event) => {
+                    if (event.payload.id !== procId) return;
+                    collectedLines.push(event.payload.line);
+                    chatDispatch({
+                      type: APPEND_SHELL_LINE,
+                      id: cardId,
+                      line: event.payload.line,
+                      isStderr: event.payload.is_stderr,
+                    });
+                  },
+                );
+
+                const unlistenExit = listen<{ id: string; code: number | null }>(
+                  "process-exit",
+                  (event) => {
+                    if (event.payload.id !== procId) return;
+                    chatDispatch({ type: FINISH_SHELL, id: cardId, exitCode: event.payload.code });
+                    Promise.all([unlistenOutput, unlistenExit]).then((fns) => fns.forEach((f) => f()));
+                    const output = collectedLines.join("\n").slice(0, 4000);
+                    if (event.payload.code === 0 || event.payload.code === null) {
+                      resolve({ success: true, data: { exitCode: event.payload.code, output } });
+                    } else {
+                      resolve({ success: false, error: `Exit ${event.payload.code}\n${output}` });
+                    }
+                  },
+                );
+              });
+            } catch (e) {
+              chatDispatch({ type: FINISH_SHELL, id: cardId, exitCode: -1 });
+              return { success: false, error: String(e) };
+            }
+          },
+        );
+
+        registryRef.current = registry;
         console.log("[App] ToolRegistry initialized with", registryRef.current.list().length, "tools");
       })
       .catch((e) => console.error("Failed to init registry:", e));
@@ -155,7 +225,11 @@ loadConfig()
         } else {
           const needsApproval = requiresApprovalCheck(plan.tool, config);
           if (needsApproval) {
-            const ok = window.confirm(`Raphael wants to execute: ${plan.tool}\n\nProceed?`);
+            const toolName = plan.tool as string;
+            const ok = await new Promise<boolean>((resolve) => {
+              approvalResolveRef.current = resolve;
+              setPendingApproval({ cardId, tool: toolName, params: (plan.params ?? {}) as Record<string, unknown> });
+            });
             if (!ok) {
               chatDispatch({ type: "UPDATE_TOOL", id: cardId, status: "error", result: "Cancelled by user" });
               setThinking(false);
@@ -165,7 +239,18 @@ loadConfig()
           const registry = registryRef.current;
           const result = await dispatch(plan.tool, plan.params ?? {}, registry);
           if (result.success) {
-            toolContext = JSON.stringify(result.data, null, 2).slice(0, 1000);
+            const raw = JSON.stringify(result.data, null, 2).slice(0, 1000);
+            // For shell.run with empty output, give the model an explicit signal
+            // instead of an empty string that causes hallucination from history.
+            if (plan.tool === "shell.run") {
+              const d = result.data as { exitCode?: number; output?: string };
+              const out = d.output?.trim() ?? "";
+              toolContext = out.length > 0
+                ? `Command ran successfully (exit 0).\n\nOutput:\n${out}`
+                : `Command ran successfully (exit 0). No output was produced — this is normal for commands like venv creation, mv, mkdir, etc.`;
+            } else {
+              toolContext = raw;
+            }
             chatDispatch({ type: "UPDATE_TOOL", id: cardId, status: "done", result: toolContext.slice(0, 120) });
             if (plan.tool === "memory.saveProfile") {
               invoke<string>("load_profile").then(setProfileContent).catch(console.error);
@@ -177,23 +262,29 @@ loadConfig()
         }
       }
 
-      const replyId = crypto.randomUUID();
       const model = pickModel(plan.model);
       const systemPrompt = buildSystemPrompt(plan.model === "fast" ? "fast" : "powerful", config.persona, profileContent);
       const contextMsg = toolContext ? `Tool result:\n${toolContext}\n\nNow respond to the user naturally.` : text;
 
+      const replyId = crypto.randomUUID();
       chatDispatch({ type: "ADD_MESSAGE", msg: { id: replyId, role: "assistant", content: "", streaming: true } });
 
-      await streamChat(
-        model,
-        [
-          { role: "system", content: systemPrompt },
-          ...history.slice(-8),
-          { role: "user", content: contextMsg },
-        ],
-        (chunk) => chatDispatch({ type: "APPEND_STREAM", id: replyId, chunk }),
-        () => chatDispatch({ type: "FINISH_STREAM", id: replyId }),
-      );
+      try {
+        await streamChat(
+          model,
+          [
+            { role: "system", content: systemPrompt },
+            ...history.slice(-8),
+            { role: "user", content: contextMsg },
+          ],
+          (chunk) => chatDispatch({ type: "APPEND_STREAM", id: replyId, chunk }),
+          () => chatDispatch({ type: "FINISH_STREAM", id: replyId }),
+        );
+      } catch (streamErr) {
+        // Remove the empty streaming bubble and show a real error message
+        chatDispatch({ type: "REMOVE", id: replyId });
+        throw streamErr;
+      }
     } catch (e) {
       console.error("Chat error:", e);
       const errId = crypto.randomUUID();
@@ -211,7 +302,7 @@ if (ready === null) return null;
       <DebugPanel />
       <div style={{ height: 2, background: thinking ? "#f59e0b" : "var(--accent)", flexShrink: 0, transition: "background 0.3s" }} />
       <div style={{ padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid #1e1e2e" }}>
-        <span style={{ letterSpacing: "0.2em", fontSize: 11, fontWeight: 700 }}>RAPHAEL</span>
+        <img src="/raphael_logo.png" alt="Raphael" style={{ height: 28, objectFit: "contain" }} />
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <button
             onClick={() => setShowSettings(true)}
@@ -261,6 +352,22 @@ if (ready === null) return null;
           onSave={(updatedConfig) => {
             setConfig(updatedConfig);
             setShowSettings(false);
+          }}
+        />
+      )}
+      {pendingApproval && (
+        <ApprovalDialog
+          tool={pendingApproval.tool}
+          params={pendingApproval.params}
+          onApprove={() => {
+            setPendingApproval(null);
+            approvalResolveRef.current?.(true);
+            approvalResolveRef.current = null;
+          }}
+          onDeny={() => {
+            setPendingApproval(null);
+            approvalResolveRef.current?.(false);
+            approvalResolveRef.current = null;
           }}
         />
       )}
