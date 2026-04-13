@@ -40,6 +40,9 @@ export type ServiceMap = {
   search: {
     query: (params: Record<string, unknown>) => Promise<ToolResult>;
   };
+  http: {
+    fetch: (params: Record<string, unknown>) => Promise<ToolResult>;
+  };
 };
 
 /**

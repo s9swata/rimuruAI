@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { ToolRegistry } from "./registry";
 import { ToolDefinition } from "./types";
+import { invoke } from "@tauri-apps/api/core";
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(),
+}));
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -123,14 +128,14 @@ describe("ToolRegistry.execute — builtin", () => {
 
 describe("ToolRegistry.execute — http", () => {
   let r: ToolRegistry;
-  beforeEach(() => { r = makeRegistry(); });
+  let mockInvoke: ReturnType<typeof vi.fn>;
+  beforeEach(() => { 
+    r = makeRegistry(); 
+    mockInvoke = vi.mocked(invoke);
+  });
 
-  it("calls fetch with the tool url and JSON body", async () => {
-    const mockFetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ temperature: 22 }),
-    });
-    vi.stubGlobal("fetch", mockFetch);
+  it("calls invoke with the tool url and body for POST", async () => {
+    mockInvoke.mockResolvedValue({ temperature: 22 });
 
     r.register({
       name: "weather.get",
@@ -144,43 +149,23 @@ describe("ToolRegistry.execute — http", () => {
     const result = await r.execute("weather.get", { city: "London" });
     expect(result.success).toBe(true);
     expect((result.data as { temperature: number }).temperature).toBe(22);
-    expect(mockFetch).toHaveBeenCalledWith(
-      "https://api.example.com/weather",
-      expect.objectContaining({ method: "POST", body: JSON.stringify({ city: "London" }) }),
-    );
-    vi.unstubAllGlobals();
+    expect(mockInvoke).toHaveBeenCalledWith("http_fetch", {
+      params: { url: "https://api.example.com/weather", method: "POST", body: JSON.stringify({ city: "London" }) },
+    });
   });
 
-  it("returns error when fetch response is not ok", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
-      ok: false,
-      status: 401,
-      text: async () => "Unauthorized",
-    }));
+  it("returns error when invoke throws", async () => {
+    mockInvoke.mockRejectedValue(new Error("Network failed"));
+
     r.register({ name: "secret.get", description: "needs auth", parameters: {}, type: "http", url: "https://api.example.com/secret" });
 
     const result = await r.execute("secret.get", {});
     expect(result.success).toBe(false);
-    expect(result.error).toContain("401");
-    vi.unstubAllGlobals();
-  });
-
-  it("returns error when fetch throws (network error)", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network failure")));
-    r.register({ name: "net.fail", description: "will fail", parameters: {}, type: "http", url: "https://offline.example.com" });
-
-    const result = await r.execute("net.fail", {});
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("network failure");
-    vi.unstubAllGlobals();
+    expect(result.error).toContain("Network failed");
   });
 
   it("does not send body for GET requests", async () => {
-    const mockFetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ joke: "Why did the chicken cross the road?" }),
-    });
-    vi.stubGlobal("fetch", mockFetch);
+    mockInvoke.mockResolvedValue({ joke: "Why did the chicken cross the road?" });
 
     r.register({
       name: "joke.get",
@@ -193,15 +178,9 @@ describe("ToolRegistry.execute — http", () => {
 
     const result = await r.execute("joke.get", {});
     expect(result.success).toBe(true);
-    expect(mockFetch).toHaveBeenCalledWith(
-      "https://official-joke-api.appspot.com/random_joke",
-      expect.objectContaining({ method: "GET" }),
-    );
-    expect(mockFetch).toHaveBeenCalledWith(
-      "https://official-joke-api.appspot.com/random_joke",
-      expect.not.objectContaining({ body: expect.anything() }),
-    );
-    vi.unstubAllGlobals();
+    expect(mockInvoke).toHaveBeenCalledWith("http_fetch", {
+      params: { url: "https://official-joke-api.appspot.com/random_joke", method: "GET", body: undefined },
+    });
   });
 });
 

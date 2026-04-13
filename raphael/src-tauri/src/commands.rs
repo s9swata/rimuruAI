@@ -1,5 +1,7 @@
 use crate::secure_store::SecureStore;
 use dirs::data_dir;
+use reqwest::Client;
+use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
@@ -201,4 +203,44 @@ pub fn update_profile(info: String) -> Result<(), String> {
     } else {
         Err("Could not open PROFILE.md for appending".to_string())
     }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct HttpFetchParams {
+    url: String,
+    method: String,
+    body: Option<String>,
+}
+
+#[tauri::command]
+pub async fn http_fetch(params: HttpFetchParams) -> Result<serde_json::Value, String> {
+    log_to_file(&format!("http_fetch: {} {}", params.method, params.url));
+    
+    let client = Client::new();
+    let request = match params.method.to_uppercase().as_str() {
+        "GET" => client.get(&params.url),
+        "POST" => client.post(&params.url),
+        _ => return Err("Unsupported method".to_string()),
+    };
+    
+    let mut request = request;
+    if let Some(body) = params.body {
+        request = request.header("Content-Type", "application/json").body(body);
+    }
+    
+    let response = request.send().await.map_err(|e| {
+        log_to_file(&format!("http_fetch error: {}", e));
+        e.to_string()
+    })?;
+    
+    let status = response.status();
+    if !status.is_success() {
+        let text = response.text().await.unwrap_or_default();
+        log_to_file(&format!("http_fetch failed: {} {}", status, text));
+        return Err(format!("HTTP {}: {}", status, text));
+    }
+    
+    let json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+    log_to_file(&format!("http_fetch success: {}", json));
+    Ok(json)
 }

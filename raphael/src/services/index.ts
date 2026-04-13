@@ -76,5 +76,22 @@ export async function createServices(): Promise<ServiceMap> {
         }
       },
     },
+    http: {
+      fetch: async (p) => {
+        const params = p as { url?: string; method?: string; body?: string };
+        try {
+          const result = await invoke<unknown>("http_fetch", {
+            params: {
+              url: params.url ?? "",
+              method: params.method ?? "POST",
+              body: params.body,
+            },
+          });
+          return { success: true, data: result };
+        } catch (e) {
+          return { success: false, error: String(e) };
+        }
+      },
+    },
   };
 }

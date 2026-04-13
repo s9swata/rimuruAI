@@ -1,5 +1,6 @@
 import { ToolDefinition, ToolImpl, ToolResult } from "./types";
 import { ServiceMap } from "./dispatcher";
+import { invoke } from "@tauri-apps/api/core";
 
 const STORAGE_KEY = "raphael_custom_tools";
 
@@ -78,16 +79,16 @@ export class ToolRegistry {
   private async executeHttp(def: ToolDefinition, params: Record<string, unknown>): Promise<ToolResult> {
     try {
       const isGet = def.method === "GET";
-      const resp = await fetch(def.url!, {
-        method: def.method ?? "POST",
-        headers: { "Content-Type": "application/json", ...(def.headers ?? {}) },
-        ...(isGet ? {} : { body: JSON.stringify(params) }),
+      const body = isGet ? undefined : JSON.stringify(params);
+      
+      const data = await invoke<unknown>("http_fetch", {
+        params: {
+          url: def.url,
+          method: def.method ?? "POST",
+          body: body,
+        },
       });
-      if (!resp.ok) {
-        const text = await resp.text();
-        return { success: false, error: `HTTP ${resp.status}: ${text}` };
-      }
-      const data = await resp.json();
+      
       return { success: true, data };
     } catch (e) {
       return { success: false, error: `HTTP tool error: ${String(e)}` };

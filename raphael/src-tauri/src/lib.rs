@@ -66,6 +66,7 @@ pub fn run() {
             commands::save_config,
             commands::load_profile,
             commands::update_profile,
+            commands::http_fetch,
             search::search_web,
         ])
         .run(tauri::generate_context!())
