@@ -41,31 +41,31 @@ type ExtractionResult = z.infer<typeof extractionSchema>;
 async function extractNodesFromText(text: string): Promise<ExtractionResult> {
   const groq = await getGroqProvider();
 
-  const { object } = await generateObject({
-    model: groq("llama-3.3-70b-versatile"),
-    providerOptions: { groq: { structuredOutputs: false } },
-    schema: extractionSchema,
-    messages: [
-      {
-        role: "system",
-        content: `You are a knowledge graph extraction engine. Given text, extract entities (nodes) and relationships (edges).
+  try {
+    const { object, text: rawText } = await generateObject({
+      model: groq("llama-3.1-70b-versatile"),
+      schema: extractionSchema,
+      messages: [
+        {
+          role: "system",
+          content: `You are a knowledge graph extraction engine. Given text, extract entities (nodes) and relationships (edges). Output valid JSON with this exact structure: {"nodes": [...], "edges": [...]}.
 
-Rules:
-- Only extract entities that are clearly present or strongly implied.
-- Node IDs must be snake_case, unique, and stable (same entity = same ID always).
-- Each edge source and target must match a node ID you defined above.
-- Use confidence EXTRACTED for explicitly stated facts, INFERRED for implied, AMBIGUOUS for guesses.
-- Prefer specific relations over generic ones: 'works_at' over 'related_to'.
-- If nothing meaningful can be extracted, return empty arrays.`,
-      },
-      {
-        role: "user",
-        content: `Extract all entities and relationships from this text:\n\n${text}`,
-      },
-    ],
-  });
-
-  return object;
+Node fields: id (snake_case), label (human readable), node_type (one of: person, place, concept, event, organization, technology, preference, habit), description, confidence (EXTRACTED or INFERRED).
+Edge fields: source (node id), target (node id), relation, confidence (EXTRACTED, INFERRED, or AMBIGUOUS), confidence_score (0.0-1.0).
+If nothing meaningful, return {"nodes": [], "edges": []}.`,
+        },
+        {
+          role: "user",
+          content: `Extract entities and relationships from:\n${text}`,
+        },
+      ],
+    });
+    console.log("[Graph] Extraction result:", JSON.stringify(object));
+    return object;
+  } catch (e) {
+    console.error("[Graph] Extraction error:", e);
+    throw e;
+  }
 }
 
 export async function getGmailAuthStatus(): Promise<boolean> {
