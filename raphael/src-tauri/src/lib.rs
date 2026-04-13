@@ -3,6 +3,7 @@ mod secure_store;
 mod search;
 mod google_oauth;
 mod gmail_api;
+mod shell_exec;
 
 
 use tauri::{
@@ -13,7 +14,10 @@ use tauri::{
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 pub fn run() {
+    let process_registry = shell_exec::new_registry();
+
     tauri::Builder::default()
+        .manage(process_registry)
         .plugin(tauri_plugin_shell::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
@@ -72,6 +76,12 @@ pub fn run() {
             commands::graphify_query,
             commands::store_memory,
             search::search_web,
+
+            // Shell Execution Module
+            shell_exec::spawn_process,
+            shell_exec::write_to_process,
+            shell_exec::kill_process,
+            shell_exec::list_processes,
         ])
         .run(tauri::generate_context!())
         .expect("error while running raphael");
