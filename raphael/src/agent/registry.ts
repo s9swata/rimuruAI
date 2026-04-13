@@ -77,10 +77,11 @@ export class ToolRegistry {
 
   private async executeHttp(def: ToolDefinition, params: Record<string, unknown>): Promise<ToolResult> {
     try {
+      const isGet = def.method === "GET";
       const resp = await fetch(def.url!, {
         method: def.method ?? "POST",
         headers: { "Content-Type": "application/json", ...(def.headers ?? {}) },
-        body: JSON.stringify(params),
+        ...(isGet ? {} : { body: JSON.stringify(params) }),
       });
       if (!resp.ok) {
         const text = await resp.text();

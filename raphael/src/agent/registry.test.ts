@@ -174,6 +174,35 @@ describe("ToolRegistry.execute — http", () => {
     expect(result.error).toContain("network failure");
     vi.unstubAllGlobals();
   });
+
+  it("does not send body for GET requests", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ joke: "Why did the chicken cross the road?" }),
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    r.register({
+      name: "joke.get",
+      description: "Get a joke",
+      parameters: {},
+      type: "http",
+      url: "https://official-joke-api.appspot.com/random_joke",
+      method: "GET",
+    });
+
+    const result = await r.execute("joke.get", {});
+    expect(result.success).toBe(true);
+    expect(mockFetch).toHaveBeenCalledWith(
+      "https://official-joke-api.appspot.com/random_joke",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(mockFetch).toHaveBeenCalledWith(
+      "https://official-joke-api.appspot.com/random_joke",
+      expect.not.objectContaining({ body: expect.anything() }),
+    );
+    vi.unstubAllGlobals();
+  });
 });
 
 // ── save / load ───────────────────────────────────────────────────────────────
