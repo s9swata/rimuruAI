@@ -134,7 +134,15 @@ pub async fn start_google_oauth() -> Result<String, String> {
         return Err("Google client_id is empty. Save it in Settings first.".to_string());
     }
 
-    let url = crate::google_oauth::start_oauth_flow(client_id, store_dir()).await?;
+    let client_secret = store
+        .get("google_client_secret")?
+        .ok_or("Google client_secret not configured. Save it in Settings first.")?;
+
+    if client_secret.is_empty() {
+        return Err("Google client_secret is empty. Save it in Settings first.".to_string());
+    }
+
+    let url = crate::google_oauth::start_oauth_flow(client_id, client_secret, store_dir()).await?;
 
     log_to_file("start_google_oauth: auth url generated");
     Ok(url)

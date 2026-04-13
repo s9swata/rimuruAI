@@ -60,6 +60,7 @@ fn generate_pkce() -> (String, String) {
 /// `store_dir`: path to raphael data dir (for SecureStore)
 pub async fn start_oauth_flow(
     client_id: String,
+    client_secret: String,
     store_dir: PathBuf,
 ) -> Result<String, String> {
     let (verifier, challenge) = generate_pkce();
@@ -88,6 +89,7 @@ pub async fn start_oauth_flow(
     let shutdown_tx = std::sync::Arc::new(tokio::sync::Mutex::new(Some(shutdown_tx)));
 
     let client_id_clone = client_id.clone();
+    let client_secret_clone = client_secret.clone();
     let redirect_uri_clone = redirect_uri.clone();
     let store_dir_clone = store_dir.clone();
     let shutdown_tx_clone = shutdown_tx.clone();
@@ -98,6 +100,7 @@ pub async fn start_oauth_flow(
             get(move |Query(params): Query<CallbackParams>| {
                 let verifier = verifier.clone();
                 let client_id = client_id_clone.clone();
+                let client_secret = client_secret_clone.clone();
                 let redirect_uri = redirect_uri_clone.clone();
                 let store_dir = store_dir_clone.clone();
                 let shutdown_tx = shutdown_tx_clone.clone();
@@ -109,7 +112,7 @@ pub async fn start_oauth_flow(
                         Some(c) => c,
                         None => return "Missing code parameter".to_string(),
                     };
-                    match exchange_code(code, verifier, client_id, redirect_uri, store_dir).await {
+                    match exchange_code(code, verifier, client_id, client_secret, redirect_uri, store_dir).await {
                         Ok(_) => {
                             // Signal server to shut down
                             if let Some(tx) = shutdown_tx.lock().await.take() {
@@ -145,6 +148,7 @@ async fn exchange_code(
     code: String,
     verifier: String,
     client_id: String,
+    client_secret: String,
     redirect_uri: String,
     store_dir: PathBuf,
 ) -> Result<(), String> {
@@ -153,6 +157,7 @@ async fn exchange_code(
     let params = [
         ("code", code.as_str()),
         ("client_id", client_id.as_str()),
+        ("client_secret", client_secret.as_str()),
         ("redirect_uri", redirect_uri.as_str()),
         ("code_verifier", verifier.as_str()),
         ("grant_type", "authorization_code"),
@@ -238,9 +243,14 @@ async fn refresh_access_token(store_dir: PathBuf) -> Result<String, String> {
         .get("google_client_id")?
         .ok_or("Google client_id not configured")?;
 
+    let client_secret = store
+        .get("google_client_secret")?
+        .ok_or("Google client_secret not configured")?;
+
     let client = reqwest::Client::new();
     let params = [
         ("client_id", client_id.as_str()),
+        ("client_secret", client_secret.as_str()),
         ("refresh_token", refresh_token.as_str()),
         ("grant_type", "refresh_token"),
     ];

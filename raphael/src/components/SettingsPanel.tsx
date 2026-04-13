@@ -96,6 +96,7 @@ function SaveButton({ onClick }: { onClick: () => void }) {
 function ApiKeysSection() {
   const [groqKey, setGroqKey] = useState("");
   const [googleClientId, setGoogleClientId] = useState("");
+  const [googleClientSecret, setGoogleClientSecret] = useState("");
   const [githubPat, setGithubPat] = useState("");
   const [serperKey, setSerperKey] = useState("");
   const [gmailConnected, setGmailConnected] = useState(false);
@@ -105,15 +106,17 @@ function ApiKeysSection() {
 
   useEffect(() => {
     (async () => {
-      const [groq, clientId, gh, serper, connected] = await Promise.all([
+      const [groq, clientId, clientSecret, gh, serper, connected] = await Promise.all([
         invoke<string | null>("get_secret", { key: "groq_api_key" }),
         invoke<string | null>("get_secret", { key: "google_client_id" }),
+        invoke<string | null>("get_secret", { key: "google_client_secret" }),
         invoke<string | null>("get_secret", { key: "github_pat" }),
         invoke<string | null>("get_secret", { key: "serper_api_key" }),
         getGmailAuthStatus(),
       ]);
       if (groq) setGroqKey(groq);
       if (clientId) setGoogleClientId(clientId);
+      if (clientSecret) setGoogleClientSecret(clientSecret);
       if (gh) setGithubPat(gh);
       if (serper) setSerperKey(serper);
       setGmailConnected(connected);
@@ -123,6 +126,7 @@ function ApiKeysSection() {
   async function handleSaveKeys() {
     if (groqKey) await invoke("set_secret", { key: "groq_api_key", value: groqKey });
     if (googleClientId) await invoke("set_secret", { key: "google_client_id", value: googleClientId });
+    if (googleClientSecret) await invoke("set_secret", { key: "google_client_secret", value: googleClientSecret });
     if (githubPat) await invoke("set_secret", { key: "github_pat", value: githubPat });
     if (serperKey) await invoke("set_secret", { key: "serper_api_key", value: serperKey });
     setSaved(true);
@@ -138,6 +142,7 @@ function ApiKeysSection() {
       setOauthStatus("pending");
       setOauthError("");
       await invoke("set_secret", { key: "google_client_id", value: googleClientId });
+      if (googleClientSecret) await invoke("set_secret", { key: "google_client_secret", value: googleClientSecret });
       const authUrl = await startGoogleOAuth();
       await openBrowser(authUrl);
       const poll = setInterval(async () => {
@@ -170,6 +175,10 @@ function ApiKeysSection() {
       <div>
         <FieldLabel>Google OAuth Client ID</FieldLabel>
         <TextInput type="text" value={googleClientId} onChange={setGoogleClientId} placeholder="xxxxxx.apps.googleusercontent.com" />
+      </div>
+      <div>
+        <FieldLabel>Google OAuth Client Secret</FieldLabel>
+        <TextInput type="password" value={googleClientSecret} onChange={setGoogleClientSecret} placeholder="GOCSPX-..." />
       </div>
       <div>
         <FieldLabel>GitHub PAT (optional — calendar cloud sync)</FieldLabel>

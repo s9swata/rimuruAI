@@ -11,6 +11,7 @@ export default function Onboarding({ onComplete }: Props) {
   const [step, setStep] = useState<Step>("groq");
   const [groqKey, setGroqKey] = useState("");
   const [googleClientId, setGoogleClientId] = useState("");
+  const [googleClientSecret, setGoogleClientSecret] = useState("");
   const [githubPat, setGithubPat] = useState("");
   const [error, setError] = useState("");
   const [oauthPending, setOauthPending] = useState(false);
@@ -23,8 +24,10 @@ export default function Onboarding({ onComplete }: Props) {
 
   async function startGmail() {
     if (!googleClientId) { setError("Paste your Google OAuth client_id first"); return; }
+    if (!googleClientSecret) { setError("Paste your Google OAuth client_secret first"); return; }
     setError("");
     await invoke("set_secret", { key: "google_client_id", value: googleClientId });
+    await invoke("set_secret", { key: "google_client_secret", value: googleClientSecret });
     try {
       setOauthPending(true);
       const authUrl = await startGoogleOAuth();
@@ -88,6 +91,7 @@ export default function Onboarding({ onComplete }: Props) {
 
       {step === "gmail" && <>
         <SecretInput label="Google OAuth Client ID" value={googleClientId} onChange={setGoogleClientId} />
+        <SecretInput label="Google OAuth Client Secret" value={googleClientSecret} onChange={setGoogleClientSecret} />
         <HelpText>
           console.cloud.google.com → Credentials → OAuth 2.0 Client ID (Desktop app type)
         </HelpText>
