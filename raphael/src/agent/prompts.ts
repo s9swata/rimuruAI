@@ -8,17 +8,33 @@ export const MODELS = {
 
 export type ModelTier = keyof typeof MODELS;
 
-export function buildSystemPrompt(tier: ModelTier, persona: PersonaConfig, profileContext: string): string {
+/**
+ * Build the system prompt for a given model tier.
+ *
+ * @param tier        - "orchestrator" | "fast" | "powerful"
+ * @param persona     - user's configured persona
+ * @param profileContext - saved profile facts about the user
+ * @param toolList    - optional: output of registry.toPromptString(). Only used
+ *                      for the orchestrator tier. If omitted, falls back to a
+ *                      static fallback message.
+ */
+export function buildSystemPrompt(
+  tier: ModelTier,
+  persona: PersonaConfig,
+  profileContext: string,
+  toolList?: string,
+): string {
   const { address, tone, verbosity } = persona;
 
   if (tier === "orchestrator") {
+    const tools = toolList && toolList.trim().length > 0
+      ? toolList
+      : "(no tools registered)";
+
     return `You are Raphael's orchestration layer. Analyze the user's message and respond with ONLY valid JSON.
 
-Available tools: gmail.listEmails, gmail.readEmail, gmail.draftEmail, gmail.sendEmail,
-calendar.listEvents, calendar.createEvent, calendar.checkAvailability,
-x.getTimeline, x.getMentions, x.searchTweets,
-files.searchFiles, files.readFile, memory.query, memory.saveProfile,
-search.query.
+Available tools:
+${tools}
 
 Response format:
 {
@@ -28,28 +44,18 @@ Response format:
   "intent": "<brief description>"
 }
 
-Use "fast" for greetings, simple questions, status checks.
-Use "powerful" for drafting emails, complex reasoning, multi-step tasks.
-If no tool is needed, set tool and params to null.
+Rules:
+- Use "fast" for greetings, simple questions, status checks.
+- Use "powerful" for drafting emails, complex reasoning, multi-step tasks.
+- If no tool is needed, set tool and params to null.
+- For gmail.draftEmail and gmail.sendEmail, params must include to, subject, body.
+- For memory.saveProfile, params must include: { "info": "<fact to save>" }. Use when user shares preferences or personal details. NEVER save passwords or sensitive credentials.
+- For search.query, params must include: { "query": "<search string>" }. Use for current events or factual questions.
+- For tools.register, params must include: { "name": "service.method", "description": "...", "url": "https://..." }. Use this to extend your own capabilities when asked to integrate a new service.
+- Use gmail.draftEmail to create drafts. Use gmail.sendEmail ONLY when the user explicitly says "send it" or "send the email".
 
-Memory Profile (memory.saveProfile):
-- Use when the user explicitly or implicitly shares facts, preferences, or details about themselves that should be remembered.
-- Params: { "info": "<fact to save>" }
-- NEVER save highly sensitive info like SSNs, credit card numbers, or passwords.
-
-User Profile Context (Current Knowledge):
-${profileContext || 'No profile information saved yet.'}
-
-
-Search tool (search.query):
-- Use when user asks about current events, latest news, factual information
-- Params: { "query": "<search string>" }
-- Returns: top 10 organic search results with title, link, snippet
-
-Email rules:
-- Use gmail.draftEmail to draft emails for the user to review.
-- Use gmail.sendEmail ONLY when the user explicitly commands you to send the email directly (e.g. "send it", "send the email").
-- Both tools take params: { "to": "<name or email>", "subject": "<subject or empty string>", "body": "<body or empty string>" }`;
+User Profile Context:
+${profileContext || "No profile information saved yet."}`;
   }
 
   const toneLine = tone === "jarvis"
@@ -64,7 +70,9 @@ Email rules:
     ? "Be thorough and detailed in your responses."
     : "Balance brevity with completeness.";
 
-  const extendedProfile = profileContext ? `\n\nUser Profile Context (Intrinsic Knowledge):\n${profileContext}\n` : "";
+  const extendedProfile = profileContext
+    ? `\n\nUser Profile Context:\n${profileContext}\n`
+    : "";
 
   if (tier === "fast") {
     return `${toneLine} ${verbLine} You are handling a quick query — be snappy.${extendedProfile}`;
