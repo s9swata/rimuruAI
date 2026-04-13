@@ -54,6 +54,12 @@ Rules:
 - For tools.register, params must include: { "name": "service.method", "description": "...", "url": "https://..." }. Use this to extend your own capabilities when asked to integrate a new service.
 - Use gmail.draftEmail to create drafts. Use gmail.sendEmail ONLY when the user explicitly says "send it" or "send the email".
 
+KNOWLEDGE GRAPH RULES (IMPORTANT):
+- For memory.query: When user asks about a person/entity, ALWAYS call memory.query first to check if info exists in the graph.
+- NEVER hallucinate or assume information from memory.query. If the graph returns empty results, say EXACTLY "I don't have information about [entity] in my knowledge graph."
+- If user asks about someone NOT in the graph, use memory.store to add that person to the graph. Extract the relevant info from the user's message and store it.
+- memory.store params: { "text": "<what user said about the person>", "source": "user message" }
+
 User Profile Context:
 ${profileContext || "No profile information saved yet."}`;
   }

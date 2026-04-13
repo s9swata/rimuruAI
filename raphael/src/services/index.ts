@@ -34,16 +34,19 @@ async function extractNodesFromText(text: string): Promise<ExtractionResult> {
 
 RULES:
 1. DO NOT extract "user", "me", "my", "I" - these refer to the speaker, not external entities
-2. Node IDs MUST be snake_case (e.g., "arjun", "google", "bangalore", "machine_learning")
-3. Every node MUST have a description - derive from context if not in text
-4. Only extract external entities explicitly mentioned or strongly implied
+2. Node IDs MUST be snake_case
+3. For names that could be ambiguous (e.g., two Priyas), append context to make unique: "priya_google" (company), "priya_mumbai" (location), or "priya_2024" (timestamp/year)
+4. Every node MUST have a description - derive from context if not in text
+5. Only extract external entities explicitly mentioned or strongly implied
+6. EVERY edge MUST have: source (node id), target (node id), relation, confidence, confidence_score
 
 Node types: person, place, concept, event, organization, technology, preference, habit
-Relations: knows, lives_in, works_at, prefers, related_to, part_of, interested_in
+Relations: knows, lives_in, works_at, prefers, related_to, part_of, interested_in, works_on
 Confidence: EXTRACTED (explicitly stated), INFERRED (implied), AMBIGUOUS (uncertain)
 confidence_score: 1.0 for EXTRACTED, 0.5 for INFERRED, 0.2 for AMBIGUOUS
 
-Output: {"nodes": [{"id": "snake_case", "label": "Human Readable", ...}], "edges": [...]}
+Output format:
+{"nodes": [{"id": "unique_snake_case", "label": "Human Readable", "node_type": "type", "description": "text", "confidence": "EXTRACTED|INFERRED"}], "edges": [{"source": "id", "target": "id", "relation": "type", "confidence": "EXTRACTED|INFERRED|AMBIGUOUS", "confidence_score": 0.0-1.0}]}
 If nothing meaningful, return {"nodes": [], "edges": []}.`,
         },
         {
