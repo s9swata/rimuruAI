@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import Onboarding from "./components/Onboarding";
 import ChatArea from "./components/ChatArea";
@@ -15,6 +15,8 @@ import { dispatch, requiresApprovalCheck } from "./agent/dispatcher";
 import { streamChat } from "./agent/groq";
 import { buildSystemPrompt } from "./agent/prompts";
 import { createServices } from "./services";
+import { initRegistry } from "./agent/registry";
+import { ToolRegistry } from "./agent/registry";
 
 function DebugPanel() {
   const [logs, setLogs] = useState<string[]>([]);
@@ -87,6 +89,7 @@ export default function App() {
   const [profileContent, setProfileContent] = useState<string>("");
   const { state, dispatch: chatDispatch } = useChatStore();
   const loadFromGist = useCalendarStore((s) => s.loadFromGist);
+  const registryRef = useRef<ToolRegistry | null>(null);
 
   useEffect(() => {
     invoke<string | null>("get_secret", { key: "groq_api_key" })
@@ -105,6 +108,13 @@ loadConfig()
     invoke<string>("load_profile")
       .then(setProfileContent)
       .catch((e) => console.error("Failed to load profile:", e));
+
+    createServices()
+      .then((services) => {
+        registryRef.current = initRegistry(services);
+        console.log("[App] ToolRegistry initialized with", registryRef.current.list().length, "tools");
+      })
+      .catch((e) => console.error("Failed to init registry:", e));
   }, []);
 
   useEffect(() => {
@@ -121,7 +131,13 @@ loadConfig()
     setThinking(true);
 
     try {
-      const plan = await orchestrate(text, history, config.persona, profileContent);
+      if (!registryRef.current) {
+        const errId = crypto.randomUUID();
+        chatDispatch({ type: "ADD_MESSAGE", msg: { id: errId, role: "assistant", content: "Still initializing — please try again in a moment." } });
+        setThinking(false);
+        return;
+      }
+      const plan = await orchestrate(text, history, config.persona, profileContent, registryRef.current);
 
       let toolContext = "";
       if (plan.tool) {
@@ -143,8 +159,8 @@ loadConfig()
               return;
             }
           }
-          const services = await createServices();
-          const result = await dispatch(plan.tool, plan.params ?? {}, services);
+          const registry = registryRef.current;
+          const result = await dispatch(plan.tool, plan.params ?? {}, registry);
           if (result.success) {
             toolContext = JSON.stringify(result.data, null, 2).slice(0, 1000);
             chatDispatch({ type: "UPDATE_TOOL", id: cardId, status: "done", result: toolContext.slice(0, 120) });
@@ -227,8 +243,9 @@ if (ready === null) return null;
         onEmailSend={async (id) => {
           const emailItem = state.items.find((i) => i.type === "email" && (i.data as { id: string }).id === id);
           if (!emailItem || emailItem.type !== "email") return;
-          const services = await createServices();
-          await services.gmail.sendEmail(emailItem.data as unknown as Record<string, unknown>);
+          if (registryRef.current) {
+            await registryRef.current.execute("gmail.sendEmail", emailItem.data as unknown as Record<string, unknown>);
+          }
           chatDispatch({ type: "REMOVE", id });
         }}
         onEmailDiscard={(id) => chatDispatch({ type: "REMOVE", id })}
