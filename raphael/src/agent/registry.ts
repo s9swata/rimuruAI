@@ -252,10 +252,9 @@ export function initRegistry(services: ServiceMap): ToolRegistry {
   r.register(
     {
       name: "memory.query",
-      description: "Search the knowledge graph for entities and relationships related to a topic. Returns nodes and edges from the graph.",
+      description: "Search the knowledge graph for entities and relationships related to a topic. Returns a synthesized text summary of relevant graph context.",
       parameters: {
-        query: { type: "string", description: "Plain text query, e.g. 'Priya sister Delhi' or 'machine learning projects'" },
-        depth: { type: "number", description: "How many hops to expand from matching nodes (default 2, max 4)" },
+        query: { type: "string", description: "Plain text query, e.g. 'What is Priya's job?' or 'machine learning projects'" },
       },
       type: "builtin",
     },
@@ -273,10 +272,9 @@ export function initRegistry(services: ServiceMap): ToolRegistry {
   r.register(
     {
       name: "memory.store",
-      description: "Extract entities and relationships from text and store them in the knowledge graph. Use this when you learn something worth remembering — facts about people, places, events, preferences, or relationships.",
+      description: "Store facts and relationships into the central memory graph. Use this when you learn something worth remembering.",
       parameters: {
-        text: { type: "string", description: "The text to extract knowledge from. Can be a sentence, paragraph, or summary of what you learned." },
-        source: { type: "string", description: "Where this info came from, e.g. 'user message', 'email from Priya', 'web search result'" },
+        text: { type: "string", description: "The factual text to append to the memory log. E.g. 'User likes dark mode' or 'Priya works at Google'." },
       },
       type: "builtin",
     },

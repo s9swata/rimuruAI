@@ -4,70 +4,9 @@ import { calendarService } from "../calendar/store";
 import { generateText } from "ai";
 import { getGroqProvider } from "../agent/groq";
 
-type ExtractionResult = {
-  nodes: Array<{
-    id: string;
-    label: string;
-    node_type: string;
-    description: string;
-    confidence: "EXTRACTED" | "INFERRED";
-  }>;
-  edges: Array<{
-    source: string;
-    target: string;
-    relation: string;
-    confidence: "EXTRACTED" | "INFERRED" | "AMBIGUOUS";
-    confidence_score: number;
-  }>;
-};
 
-async function extractNodesFromText(text: string): Promise<ExtractionResult> {
-  const groq = await getGroqProvider();
 
-  try {
-    const { text: rawText } = await generateText({
-      model: groq("llama-3.3-70b-versatile"),
-      messages: [
-        {
-          role: "system",
-          content: `You are a knowledge graph extraction engine. Extract entities and relationships from text. Output ONLY valid JSON.
 
-CRITICAL RULES:
-1. DO NOT extract "user", "me", "my", "I", "myself" - these refer to the speaker
-2. If user says "I met X" or "my friend X" - X is an external person, NOT the user
-3. Node IDs MUST be snake_case AND unique. If same name appears with different context, append context: "priya_google", "priya_yoga_class", "priya_delhi"
-4. Every node MUST have a description
-5. For uncertain info ("might", "maybe", "I think"), use confidence: AMBIGUOUS with score: 0.2
-6. EVERY edge MUST have all required fields
-
-Node types: person, place, concept, event, organization, technology, preference, habit
-Relations: knows, lives_in, works_at, prefers, related_to, part_of, interested_in, works_on, originally_from
-Confidence: EXTRACTED (explicit), INFERRED (implied), AMBIGUOUS (uncertain)
-confidence_score: 1.0 EXTRACTED, 0.5 INFERRED, 0.2 AMBIGUOUS
-
-Output: {"nodes": [{"id": "unique_id", "label": "Name", "node_type": "type", "description": "desc", "confidence": "EXTRACTED|INFERRED|AMBIGUOUS"}], "edges": [...]}
-If nothing meaningful, return {"nodes": [], "edges": []}.`,
-        },
-        {
-          role: "user",
-          content: `Extract entities and relationships from:\n${text}`,
-        },
-      ],
-    });
-    
-    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error("No JSON found in response");
-    }
-    
-    const parsed = JSON.parse(jsonMatch[0]);
-    console.log("[Graph] Extraction result:", JSON.stringify(parsed));
-    return parsed as ExtractionResult;
-  } catch (e) {
-    console.error("[Graph] Extraction error:", e);
-    throw e;
-  }
-}
 
 export async function getGmailAuthStatus(): Promise<boolean> {
   return invoke<boolean>("get_gmail_auth_status");
@@ -119,18 +58,20 @@ export async function createServices(): Promise<ServiceMap> {
     memory: {
       query: async (p) => {
         const params = p as { query?: string; depth?: number };
-        if (!params.query) return { success: false, error: "Missing query param" };
+        if (!params.query) {
+          console.error("[Graphify] Missing query param in memory.query");
+          return { success: false, error: "Missing query param" };
+        }
         try {
-          const result = await invoke<{
-            nodes: Array<{ id: string; label: string; node_type: string; description: string; confidence: string }>;
-            edges: Array<{ source: string; target: string; relation: string; confidence: string; confidence_score: number }>;
-            start_nodes: string[];
-          }>("query_graph", {
+          console.log(`[Graphify] Executing memory.query for: "${params.query}"`);
+          const result = await invoke<string>("graphify_query", {
             query: params.query,
             depth: params.depth ?? 2,
           });
+          console.log(`[Graphify] memory.query SUCCESS. Result snippet: ${result.substring(0, 150)}...`);
           return { success: true, data: result };
         } catch (e) {
+          console.error(`[Graphify] memory.query FAILED:`, e);
           return { success: false, error: String(e) };
         }
       },
@@ -145,45 +86,21 @@ export async function createServices(): Promise<ServiceMap> {
         }
       },
       store: async (p) => {
-        const params = p as { text?: string; source?: string };
-        if (!params.text) return { success: false, error: "Missing text param" };
+        const params = p as { text?: string };
+        if (!params.text) {
+          console.error("[Graphify] Missing text param in memory.store");
+          return { success: false, error: "Missing text param" };
+        }
         try {
-          const cached = await invoke<string | null>("check_graph_cache", { text: params.text });
-
-          let nodes: ExtractionResult["nodes"];
-          let edges: ExtractionResult["edges"];
-
-          if (cached) {
-            const parsed = JSON.parse(cached) as ExtractionResult;
-            nodes = parsed.nodes;
-            edges = parsed.edges;
-          } else {
-            const extracted = await extractNodesFromText(params.text);
-            nodes = extracted.nodes;
-            edges = extracted.edges;
-          }
-
-          if (nodes.length === 0 && edges.length === 0) {
-            return { success: true, data: { stored: 0, note: "Nothing meaningful to extract" } };
-          }
-
-          await invoke("add_to_graph", {
-            params: {
-              nodes: nodes.map((n) => ({
-                ...n,
-                source: params.source ?? "agent",
-                community: null,
-              })),
-              edges,
-              source_text: params.text,
-            },
-          });
-
+          console.log(`[Graphify] Executing memory.store with text: "${params.text}"`);
+          const result = await invoke<string>("store_memory", { text: params.text });
+          console.log(`[Graphify] memory.store SUCCESS. Result: ${result}`);
           return {
             success: true,
-            data: { stored: nodes.length, nodes: nodes.length, edges: edges.length },
+            data: { stored: true, result },
           };
         } catch (e) {
+          console.error(`[Graphify] memory.store FAILED:`, e);
           return { success: false, error: String(e) };
         }
       },

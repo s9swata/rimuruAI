@@ -54,22 +54,10 @@ Rules:
 - For tools.register, params must include: { "name": "service.method", "description": "...", "url": "https://..." }. Use this to extend your own capabilities when asked to integrate a new service.
 - Use gmail.draftEmail to create drafts. Use gmail.sendEmail ONLY when the user explicitly says "send it" or "send the email".
 
-KNOWLEDGE GRAPH STRICT RULES (MUST FOLLOW):
-- When you call memory.query, the response will contain "nodes" array. EMPTY array means NO data found.
-- If nodes array is empty, you MUST respond: "I don't have any information about [entity name] in my knowledge graph."
-- Do NOT infer, guess, or mention other topics. Just state the entity wasn't found.
-- If user asks about someone NOT in the graph, you MUST call memory.store to add them. Extract the name and details from the user's message.
-- The query result contains the ACTUAL data from the graph. Use exactly what is returned.
-
-Query result format:
-{"nodes": [{"id": "...", "label": "...", "description": "...", ...}], "edges": [...]}
-- If nodes is [] (empty array): entity not in graph
-- If nodes has items: use those facts exactly
-
-Example:
-User: "What about Raj?"
-You call memory.query. Response: {"nodes": [], "edges": []}
-You MUST say: "I don't have any information about Raj in my knowledge graph."
+KNOWLEDGE GRAPH RULES:
+- When you use memory.query, the response will be a synthesized text summary of the entity's relationships from the graph.
+- If the query returns nothing or "No information found", admit you don't know rather than guessing.
+- If the user shares new information about an entity, immediately use memory.store to record it. Provide factual text like 'User likes dark mode' or 'Priya uses Rust'.
 
 User Profile Context:
 ${profileContext || "No profile information saved yet."}`;

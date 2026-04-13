@@ -1,70 +1,130 @@
-use crate::graph::{GraphEdge, GraphNode};
+
 use crate::secure_store::SecureStore;
 
-#[derive(Deserialize)]
-pub struct AddToGraphParams {
-    pub nodes: Vec<GraphNode>,
-    pub edges: Vec<GraphEdge>,
-    pub source_text: String,
-}
-
-#[tauri::command]
-pub fn add_to_graph(params: AddToGraphParams) -> Result<(), String> {
-    let dir = store_dir();
-    log_to_file(&format!(
-        "add_to_graph: {} nodes, {} edges",
-        params.nodes.len(),
-        params.edges.len()
-    ));
-
-    if let Ok(json) = serde_json::to_string(&serde_json::json!({
-        "nodes": &params.nodes,
-        "edges": &params.edges,
-    })) {
-        let _ = crate::graph_cache::save_cached(&params.source_text, &json, &dir);
-    }
-
-    let mut graph = crate::graph::load_graph(&dir);
-    crate::graph::merge(&mut graph, params.nodes, params.edges);
-    crate::graph::save_graph(&dir, &graph)?;
-
-    log_to_file("add_to_graph: saved");
-    Ok(())
-}
-
-#[tauri::command]
-pub fn query_graph(query: String, depth: Option<usize>) -> Result<crate::graph::QueryResult, String> {
-    let dir = store_dir();
-    log_to_file(&format!("query_graph: '{}'", query));
-    let graph = crate::graph::load_graph(&dir);
-    let result = crate::graph::query_graph(&graph, &query, depth.unwrap_or(2), 3);
-    log_to_file(&format!(
-        "query_graph result: {} nodes, {} edges",
-        result.nodes.len(),
-        result.edges.len()
-    ));
-    Ok(result)
-}
-
-#[tauri::command]
-pub fn get_graph_stats() -> Result<crate::graph::GraphStats, String> {
-    let dir = store_dir();
-    log_to_file("get_graph_stats");
-    let graph = crate::graph::load_graph(&dir);
-    Ok(crate::graph::compute_stats(&graph))
-}
-
-#[tauri::command]
-pub fn check_graph_cache(text: String) -> Option<String> {
-    let dir = store_dir();
-    crate::graph_cache::load_cached(&text, &dir)
-}
 use dirs::data_dir;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
+use std::process::Command;
+
+#[tauri::command]
+pub fn graphify_query(query: String, _depth: Option<usize>) -> Result<String, String> {
+    log_to_file(&format!("--- [DEBUG] START graphify_query ---"));
+    log_to_file(&format!("Input Query: '{}'", query));
+    
+    let memory_dir = store_dir().join("memory");
+    std::fs::create_dir_all(&memory_dir).unwrap_or_default();
+    log_to_file(&format!("Current working directory for graphify: {:?}", memory_dir));
+    
+    let output = Command::new("python3")
+        .arg("/tmp/graphify-v4/graphify/__main__.py")
+        .arg("query")
+        .arg(&query)
+        .current_dir(&memory_dir)
+        .output()
+        .map_err(|e| {
+            let err_msg = format!("Failed to spawn graphify command: {}", e);
+            log_to_file(&err_msg);
+            err_msg
+        })?;
+
+    if output.status.success() {
+        let result = String::from_utf8_lossy(&output.stdout).to_string();
+        log_to_file(&format!("graphify_query SUCCESS. Status: {}", output.status));
+        log_to_file(&format!("STDOUT Snippet (first 500 chars): {:.500}", result));
+        log_to_file(&format!("--- [DEBUG] END graphify_query ---"));
+        Ok(result)
+    } else {
+        let err = String::from_utf8_lossy(&output.stderr).to_string();
+        log_to_file(&format!("graphify_query FAILED. Status: {}", output.status));
+        log_to_file(&format!("STDERR Output:\n{}", err));
+        if !output.stdout.is_empty() {
+            log_to_file(&format!("STDOUT Output:\n{}", String::from_utf8_lossy(&output.stdout)));
+        }
+        log_to_file(&format!("--- [DEBUG] END graphify_query ---"));
+        Err(err)
+    }
+}
+
+#[tauri::command]
+pub fn store_memory(text: String) -> Result<String, String> {
+    log_to_file(&format!("--- [DEBUG] START store_memory ---"));
+    log_to_file(&format!("Input Text: '{}'", text));
+    
+    let memory_dir = store_dir().join("memory");
+    
+    log_to_file(&format!("Will attempt to create/use memory_dir: {:?}", memory_dir));
+    std::fs::create_dir_all(&memory_dir).map_err(|e| {
+        let err_msg = format!("Failed to create memory_dir: {:?} Error: {}", memory_dir, e);
+        log_to_file(&err_msg);
+        err_msg
+    })?;
+    
+    let path = memory_dir.join("memory_log.md");
+    let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+    let entry = format!("- [{}]: {}\n", timestamp, text);
+    
+    match OpenOptions::new().create(true).append(true).open(&path) {
+        Ok(mut file) => {
+            if let Err(e) = file.write_all(entry.as_bytes()) {
+                let err_msg = format!("Failed to write to memory_log.md: {}", e);
+                log_to_file(&err_msg);
+                return Err(err_msg);
+            }
+            log_to_file(&format!("Successfully appended to {:?}", path));
+            
+            // --- Graphify v4 Fast Injection ---
+            // Graphify v4's AST extractor parses code files natively, but requires agents to parse unstructured memory logs.
+            // To ensure immediate queryability without LLM delays, we dynamically inject the text as a node directly into graph.json.
+            let out_dir = memory_dir.join("graphify-out");
+            std::fs::create_dir_all(&out_dir).unwrap_or_default();
+            let graph_path = out_dir.join("graph.json");
+            
+            let mut graph_data = if graph_path.exists() {
+                let content = std::fs::read_to_string(&graph_path).unwrap_or_else(|_| r#"{"nodes":[],"links":[]}"#.to_string());
+                serde_json::from_str::<serde_json::Value>(&content).unwrap_or_else(|_| serde_json::json!({"nodes":[],"links":[]}))
+            } else {
+                serde_json::json!({"nodes": [], "links": []})
+            };
+            
+            let new_id = format!("mem_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
+            let new_node = serde_json::json!({
+                "id": new_id,
+                "label": text,
+                "file_type": "memory",
+                "community": 0
+            });
+            
+            if let Some(nodes) = graph_data.get_mut("nodes").and_then(|n| n.as_array_mut()) {
+                nodes.push(new_node);
+            } else {
+                graph_data["nodes"] = serde_json::json!([new_node]);
+            }
+            
+            if graph_data.get("links").is_none() {
+                graph_data["links"] = serde_json::json!([]);
+            }
+            
+            if let Err(e) = std::fs::write(&graph_path, serde_json::to_string_pretty(&graph_data).unwrap_or_default()) {
+                log_to_file(&format!("Failed to write injected graph.json: {}", e));
+            } else {
+                log_to_file(&format!("Successfully injected node {} into graph.json", new_id));
+            }
+            // ----------------------------------
+                
+            log_to_file("--- [DEBUG] END store_memory ---");
+            Ok(format!("Saved to memory and successfully injected into knowledge graph"))
+        }
+        Err(e) => {
+            let err_msg = format!("Could not open memory log: {}", e);
+            log_to_file(&err_msg);
+            log_to_file("--- [DEBUG] END store_memory ---");
+            Err(err_msg)
+        }
+    }
+}
 
 fn store_dir() -> PathBuf {
     data_dir()
