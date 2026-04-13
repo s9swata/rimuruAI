@@ -43,7 +43,7 @@ async function extractNodesFromText(text: string): Promise<ExtractionResult> {
 
   try {
     const { object, text: rawText } = await generateObject({
-      model: groq("llama-3.1-70b-versatile"),
+      model: groq("llama-3.3-70b-versatile"),
       schema: extractionSchema,
       messages: [
         {
