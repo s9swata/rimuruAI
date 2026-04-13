@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getGmailAuthStatus, startGoogleOAuth } from "../services/index";
+import { open as openBrowser } from "@tauri-apps/plugin-shell";
 
 interface Props { onComplete: () => void; }
 
@@ -27,7 +28,7 @@ export default function Onboarding({ onComplete }: Props) {
     try {
       setOauthPending(true);
       const authUrl = await startGoogleOAuth();
-      window.open(authUrl, "_blank");
+      await openBrowser(authUrl);
       const poll = setInterval(async () => {
         const connected = await getGmailAuthStatus();
         if (connected) {

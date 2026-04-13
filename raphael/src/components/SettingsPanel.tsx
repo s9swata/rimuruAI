@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { RaphaelConfig, TrustLevel, applyTrustLevel } from "../config/types";
 import { saveConfig } from "../config/loader";
 import { getGmailAuthStatus, startGoogleOAuth, revokeGoogleOAuth } from "../services/index";
+import { open as openBrowser } from "@tauri-apps/plugin-shell";
 
 interface Props {
   config: RaphaelConfig;
@@ -138,7 +139,7 @@ function ApiKeysSection() {
       setOauthError("");
       await invoke("set_secret", { key: "google_client_id", value: googleClientId });
       const authUrl = await startGoogleOAuth();
-      window.open(authUrl, "_blank");
+      await openBrowser(authUrl);
       const poll = setInterval(async () => {
         const connected = await getGmailAuthStatus();
         if (connected) {
