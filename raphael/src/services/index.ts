@@ -30,15 +30,20 @@ async function extractNodesFromText(text: string): Promise<ExtractionResult> {
       messages: [
         {
           role: "system",
-          content: `You are a knowledge graph extraction engine. Given text, extract entities (nodes) and relationships (edges). Output ONLY valid JSON with no other text.
+          content: `You are a knowledge graph extraction engine. Extract entities and relationships from text. Output ONLY valid JSON.
 
-Required JSON structure:
-{"nodes": [{"id": "string", "label": "string", "node_type": "string", "description": "string", "confidence": "EXTRACTED|INFERRED"}], "edges": [{"source": "string", "target": "string", "relation": "string", "confidence": "EXTRACTED|INFERRED|AMBIGUOUS", "confidence_score": number}]}
+RULES:
+1. DO NOT extract "user", "me", "my", "I" - these refer to the speaker, not external entities
+2. Node IDs MUST be snake_case (e.g., "arjun", "google", "bangalore", "machine_learning")
+3. Every node MUST have a description - derive from context if not in text
+4. Only extract external entities explicitly mentioned or strongly implied
 
 Node types: person, place, concept, event, organization, technology, preference, habit
 Relations: knows, lives_in, works_at, prefers, related_to, part_of, interested_in
 Confidence: EXTRACTED (explicitly stated), INFERRED (implied), AMBIGUOUS (uncertain)
 confidence_score: 1.0 for EXTRACTED, 0.5 for INFERRED, 0.2 for AMBIGUOUS
+
+Output: {"nodes": [{"id": "snake_case", "label": "Human Readable", ...}], "edges": [...]}
 If nothing meaningful, return {"nodes": [], "edges": []}.`,
         },
         {
