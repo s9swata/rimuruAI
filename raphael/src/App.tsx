@@ -256,7 +256,7 @@ loadConfig()
                 ? `Command ran successfully (exit 0).\n\nOutput:\n${out}`
                 : `Command ran successfully (exit 0). No output was produced — this is normal for commands like venv creation, mv, mkdir, etc.`;
             } else {
-              iterContext = JSON.stringify(result.data, null, 2).slice(0, 1000);
+              iterContext = JSON.stringify(result.data, null, 2);
             }
             chatDispatch({ type: "UPDATE_TOOL", id: cardId, status: "done", result: iterContext.slice(0, 120) });
             if (planTool === "memory.saveProfile") {
@@ -281,7 +281,9 @@ loadConfig()
 
       const model = pickModel(lastPlan.model);
       const systemPrompt = buildSystemPrompt(lastPlan.model === "fast" ? "fast" : "powerful", config.persona, profileContent);
-      const contextMsg = toolContext ? `Tool result:\n${toolContext}\n\nNow respond to the user naturally.` : text;
+      const contextMsg = toolContext
+        ? `Tool result:\n${toolContext.slice(0, 8000)}\n\nNow respond to the user naturally.`
+        : text;
 
       const replyId = crypto.randomUUID();
       chatDispatch({ type: "ADD_MESSAGE", msg: { id: replyId, role: "assistant", content: "", streaming: true } });
