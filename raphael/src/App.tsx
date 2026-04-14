@@ -83,6 +83,20 @@ console.error = (...args) => {
   localStorage.setItem("raphael_logs", JSON.stringify(logs));
 };
 
+// Slash command fast-path — bypass orchestrator for known intents
+function parseSlashCommand(text: string): { tool: string; params: Record<string, unknown> } | null {
+  const t = text.trim();
+  if (/^\/(?:email|mail)\b/i.test(t)) return { tool: "gmail.listEmails", params: {} };
+  if (/^\/(?:calendar|cal)\b/i.test(t)) return { tool: "calendar.listEvents", params: {} };
+  const memMatch = t.match(/^\/memory\s+(.+)/i);
+  if (memMatch) return { tool: "memory.query", params: { query: memMatch[1] } };
+  const searchMatch = t.match(/^\/search\s+(.+)/i);
+  if (searchMatch) return { tool: "search.query", params: { query: searchMatch[1] } };
+  const runMatch = t.match(/^\/run\s+(.+)/i);
+  if (runMatch) return { tool: "shell.run", params: { command: runMatch[1] } };
+  return null;
+}
+
 export default function App() {
   const [ready, setReady] = useState<boolean | null>(null);
   const [config, setConfig] = useState<RaphaelConfig>(DEFAULT_CONFIG);
@@ -225,10 +239,16 @@ loadConfig()
       const MAX_TOOL_ITERS = 3;
       let toolContext = "";
       const combinedProfile = [profileContent, startupMemory].filter(Boolean).join("\n\n---\n\n");
-      let lastPlan = await orchestrate(text, history, config.persona, combinedProfile, registryRef.current).catch((e) => {
-        console.error("Orchestrator failed, falling back to fast model:", e);
-        return { model: "fast" as const, tool: null, params: null, intent: "direct response" };
-      });
+
+      // Slash command fast-path
+      const slashCmd = parseSlashCommand(text);
+      let lastPlan = slashCmd
+        ? { model: "fast" as const, tool: slashCmd.tool, params: slashCmd.params, intent: `slash: ${slashCmd.tool}` }
+        : await orchestrate(text, history, config.persona, combinedProfile, registryRef.current)
+            .catch((e) => {
+              console.error("Orchestrator failed, falling back to fast model:", e);
+              return { model: "fast" as const, tool: null, params: null, intent: "direct response" };
+            });
 
       for (let iter = 0; iter < MAX_TOOL_ITERS && lastPlan.tool; iter++) {
         const plan = lastPlan;
