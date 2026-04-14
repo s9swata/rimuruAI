@@ -210,12 +210,7 @@ fn check_accessibility_windows() -> Result<bool, String> {
             0xFFFF,
         ).unwrap_or(HANDLE::default());
         
-        if explorer.is_invalid() {
-            Ok(false)
-        } else {
-            let _ = windows::Win32::System::Threading::CloseHandle(explorer);
-            Ok(true)
-        }
+        Ok(!explorer.is_invalid())
     }
 }
 
