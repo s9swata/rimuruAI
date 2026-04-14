@@ -48,6 +48,7 @@ jobs:
         with:
           node-version: lts/*
           cache: 'npm'
+          working-directory: words-of-world-tauri
 
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -57,9 +58,10 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: './src-tauri -> target'
+          workspaces: 'words-of-world-tauri/src-tauri -> target'
 
       - name: install frontend dependencies
+        working-directory: words-of-world-tauri
         run: npm install
 
       - uses: tauri-apps/tauri-action@v0
@@ -72,3 +74,4 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+          projectPath: words-of-world-tauri
