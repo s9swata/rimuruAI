@@ -28,6 +28,7 @@ main
 
 # Raw files (downloaded research, not meant to be versioned)
 raw/
+openclaw-docs/
 
 # Build/dist outputs
 words-of-world/dist/
