@@ -6,7 +6,7 @@ import TOOLS_GUIDE from "./bootstrap/TOOLS.md?raw";
 
 export const MODELS = {
   orchestrator: "qwen-qwen3-32b",                    // Groq — structured JSON routing
-  fast:         "meta-llama/llama-3.1-8b-instant",   // Groq — low latency for simple queries
+  fast:         "llama-3.1-8b-instant",               // Groq — low latency for simple queries
   powerful:     "llama-3.3-70b-versatile",           // Groq — complex reasoning / synthesis
 } as const;
 
@@ -52,6 +52,7 @@ Response format:
 - Draft before send — gmail.draftEmail unless user explicitly says "send it now"
 - Memory is persistent — store new facts, query for third-party entities
 - Null tool for: pure conversation, simple math, follow-up after a tool just ran
+- Multi-step intent: when user asks to search THEN email, first call search.query, then on re-orchestration call gmail.draftEmail with the results synthesized into the body
 
 ${TOOLS_GUIDE}
 
@@ -74,6 +75,12 @@ User: "remember that John works at Acme Corp as an engineer"
 
 User: "explain how async/await works in JavaScript"
 {"model":"powerful","tool":null,"params":null,"intent":"Technical explanation, no tool needed"}
+
+User: "search for claude api pricing, then compose an email to user@example.com about it"
+{"model":"powerful","tool":"search.query","params":{"query":"Claude API pricing 2025"},"intent":"Searching for Claude API pricing before composing email"}
+
+Previous tool result: [search results about Claude API pricing...]
+{"model":"powerful","tool":"gmail.draftEmail","params":{"to":"user@example.com","subject":"Claude API Pricing","body":"Here's what I found about Claude API pricing:\n\n[synthesized results]"},"intent":"Composing email with search results"}
 
 ## Error recovery
 - If a prior tool result contains an error, set tool to null and explain the error clearly. Suggest a fix if obvious.
@@ -118,12 +125,14 @@ ${AGENTS}`;
     ? `\n\nUser Profile Context:\n${profileContext}`
     : "";
 
-  const prompt = `${identityBlock}
+  if (tier === "fast") {
+    return `You are Raphael — a personal AI agent. ${toneLine} ${verbLine}${toolResultGuidance}${extendedProfile}`;
+  }
+  // powerful gets full identity
+  return `${identityBlock}
 
 ${toneLine}
 
 ${verbLine}
 ${toolResultGuidance}${extendedProfile}`;
-
-  return prompt;
 }

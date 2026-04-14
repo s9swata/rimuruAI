@@ -292,6 +292,10 @@ loadConfig()
                 : `Command ran successfully (exit 0). No output was produced — this is normal for commands like venv creation, mv, mkdir, etc.`;
             } else {
               iterContext = JSON.stringify(result.data, null, 2);
+              // Normalize empty list results to a human-readable signal
+              if (iterContext === "[]" || iterContext === "null") {
+                iterContext = `${planTool} returned no results.`;
+              }
             }
             chatDispatch({ type: "UPDATE_TOOL", id: cardId, status: "done", result: iterContext.slice(0, 120) });
             if (planTool === "memory.saveProfile") {
