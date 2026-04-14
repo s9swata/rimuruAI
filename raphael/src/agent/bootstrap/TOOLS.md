@@ -25,3 +25,8 @@ Preferred for: any filesystem op, git, scripts, installs, system state checks
 ## tools.register
 - Extend yourself with new HTTP endpoints at runtime
 - Use `service.method` naming: `weather.get`, `slack.post`, etc.
+
+## resources.*
+- `resources.define(manifest)` — Define a new resource type when you need to persistently track structured data (contacts, notes, tasks, bookmarks, etc). First check if a matching resource type already exists via `resources.listManifests`. Then define it and use its tools immediately.
+- When a user asks you to "remember", "save", "track", or "look up" structured data, proactively use the resource system.
+- When asked to email someone by name, call the contacts resource find tool first if a contacts resource exists.

@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { ServiceMap } from "../agent/dispatcher";
+import { ServiceMap, ResourceManifest } from "../agent/dispatcher";
 import { calendarService } from "../calendar/store";
 import { callMemoryTool } from "../agent/MemoryMCPClient";
 
@@ -139,6 +139,20 @@ export async function createServices(): Promise<ServiceMap> {
           return { success: false, error: String(e) };
         }
       },
+    },
+    resources: {
+      define: (manifest: ResourceManifest) =>
+        invoke<ResourceManifest>("resource_define", { manifest }),
+      listManifests: () =>
+        invoke<ResourceManifest[]>("resource_list_manifests"),
+      upsert: (resource_type: string, item: Record<string, unknown>) =>
+        invoke<Record<string, unknown>>("resource_upsert", { resource_type, item }),
+      find: (resource_type: string, query: string) =>
+        invoke<Record<string, unknown>[]>("resource_find", { resource_type, query }),
+      list: (resource_type: string) =>
+        invoke<Record<string, unknown>[]>("resource_list", { resource_type }),
+      delete: (resource_type: string, id: string) =>
+        invoke<boolean>("resource_delete", { resource_type, id }),
     },
   };
 }

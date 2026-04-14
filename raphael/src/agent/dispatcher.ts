@@ -2,6 +2,25 @@ import { RaphaelConfig } from "../config/types";
 import { ToolResult } from "./types";
 import { ToolRegistry } from "./registry";
 
+// Resource system types
+export interface ResourceField {
+  name: string;
+  field_type: string; // "string" | "number" | "boolean"
+  required: boolean;
+  searchable: boolean;
+}
+export interface ResourceToolDef {
+  name: string;
+  description: string;
+  op: string; // "find" | "upsert" | "list" | "delete"
+}
+export interface ResourceManifest {
+  resource_type: string;
+  description: string;
+  fields: ResourceField[];
+  tools: ResourceToolDef[];
+}
+
 export type { ToolResult };
 
 export function requiresApprovalCheck(tool: string, config: RaphaelConfig): boolean {
@@ -43,6 +62,14 @@ export type ServiceMap = {
   };
   http: {
     fetch: (params: Record<string, unknown>) => Promise<ToolResult>;
+  };
+  resources: {
+    define: (manifest: ResourceManifest) => Promise<ResourceManifest>;
+    listManifests: () => Promise<ResourceManifest[]>;
+    upsert: (resource_type: string, item: Record<string, unknown>) => Promise<Record<string, unknown>>;
+    find: (resource_type: string, query: string) => Promise<Record<string, unknown>[]>;
+    list: (resource_type: string) => Promise<Record<string, unknown>[]>;
+    delete: (resource_type: string, id: string) => Promise<boolean>;
   };
 };
 

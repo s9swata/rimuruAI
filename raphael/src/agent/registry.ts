@@ -1,5 +1,5 @@
-import { ToolDefinition, ToolImpl, ToolResult } from "./types";
-import { ServiceMap } from "./dispatcher";
+import { ToolDefinition, ToolImpl, ToolResult, ToolParameter } from "./types";
+import { ServiceMap, ResourceManifest } from "./dispatcher";
 import { invoke } from "@tauri-apps/api/core";
 
 const STORAGE_KEY = "raphael_custom_tools";
@@ -337,8 +337,157 @@ export function initRegistry(services: ServiceMap): ToolRegistry {
     },
   );
 
+  // ── resources (service tools) ─────────────────────────────────────────
+  r.register(
+    {
+      name: "resources.listManifests",
+      description: "List all defined resource types. Use to check if a resource type already exists before defining a new one.",
+      parameters: {},
+      type: "builtin",
+    },
+    async () => {
+      try {
+        const data = await services.resources.listManifests();
+        return { success: true, data };
+      } catch (e) {
+        return { success: false, error: String(e) };
+      }
+    },
+  );
+  r.register(
+    {
+      name: "resources.find",
+      description: "Find items in a resource type by search query. Requires resource_type to be specified.",
+      parameters: {
+        resource_type: { type: "string", description: "The resource type to search in" },
+        query: { type: "string", description: "Search query" },
+      },
+      type: "builtin",
+    },
+    async (params) => {
+      try {
+        const resource_type = String(params.resource_type ?? "").trim();
+        const query = String(params.query ?? "").trim();
+        if (!resource_type) return { success: false, error: "resource_type is required" };
+        const data = await services.resources.find(resource_type, query);
+        return { success: true, data };
+      } catch (e) {
+        return { success: false, error: String(e) };
+      }
+    },
+  );
+
+  // ── resources.define (meta-tool) ─────────────────────────────────────
+  // Lets the agent define new resource types and immediately bootstraps their tools.
+  r.register(
+    {
+      name: "resources.define",
+      description: "Create a new resource type the agent can store and retrieve. Use when user needs to persistently track a new kind of data (contacts, notes, tasks, bookmarks, etc). After defining, the resource tools are immediately available.",
+      parameters: {
+        manifest: { type: "string", description: "JSON-encoded ResourceManifest object with resource_type, description, fields, and tools" },
+      },
+      type: "builtin",
+    },
+    async (params) => {
+      try {
+        const manifest = (
+          typeof params.manifest === "string"
+            ? JSON.parse(params.manifest)
+            : params.manifest
+        ) as ResourceManifest;
+        const result = await services.resources.define(manifest);
+        registerManifestTools(r, result, services);
+        return { success: true, data: result };
+      } catch (e) {
+        return { success: false, error: String(e) };
+      }
+    },
+  );
+
   // Load any custom HTTP tools saved from a previous session
   r.load();
 
   return r;
+}
+
+// ── Resource tool bootstrapper ────────────────────────────────────────────────
+
+/**
+ * Build the parameter schema for a resource tool operation.
+ */
+function buildParamsSchema(manifest: ResourceManifest, op: string): Record<string, ToolParameter> {
+  switch (op) {
+    case "find":
+      return { query: { type: "string", description: "Search query string" } };
+    case "upsert": {
+      const schema: Record<string, ToolParameter> = {};
+      for (const field of manifest.fields) {
+        const fieldType = field.field_type === "number"
+          ? "number"
+          : field.field_type === "boolean"
+          ? "boolean"
+          : "string";
+        schema[field.name] = { type: fieldType as "string" | "number" | "boolean", description: `${field.name} field` };
+      }
+      return schema;
+    }
+    case "list":
+      return {};
+    case "delete":
+      return { id: { type: "string", description: "ID of the item to delete" } };
+    default:
+      return {};
+  }
+}
+
+/**
+ * Register all tools defined in a ResourceManifest into the given registry.
+ */
+export function registerManifestTools(registry: ToolRegistry, manifest: ResourceManifest, services: ServiceMap): void {
+  for (const tool of manifest.tools) {
+    registry.register(
+      {
+        name: tool.name,
+        description: tool.description,
+        parameters: buildParamsSchema(manifest, tool.op),
+        type: "builtin",
+      },
+      async (params: Record<string, unknown>) => {
+        try {
+          switch (tool.op) {
+            case "find":
+              return { success: true, data: await services.resources.find(manifest.resource_type, params.query as string) };
+            case "upsert":
+              return { success: true, data: await services.resources.upsert(manifest.resource_type, params) };
+            case "list":
+              return { success: true, data: await services.resources.list(manifest.resource_type) };
+            case "delete":
+              return { success: true, data: await services.resources.delete(manifest.resource_type, params.id as string) };
+            default:
+              return { success: false, error: `Unknown op: ${tool.op}` };
+          }
+        } catch (e) {
+          return { success: false, error: String(e) };
+        }
+      },
+    );
+  }
+}
+
+/**
+ * Load all previously defined resource manifests from the backend and register
+ * their tools into the registry. Call once after initRegistry on app startup.
+ */
+export async function bootstrapResourceTools(registry: ToolRegistry, services: ServiceMap): Promise<void> {
+  try {
+    const manifests = await services.resources.listManifests();
+    for (const manifest of manifests) {
+      registerManifestTools(registry, manifest, services);
+    }
+    if (manifests.length > 0) {
+      console.log(`[ResourceBootstrap] Registered tools for ${manifests.length} resource type(s)`);
+    }
+  } catch {
+    // No resources defined yet, or backend unavailable — silently continue
+  }
 }

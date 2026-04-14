@@ -17,8 +17,7 @@ import { dispatch, requiresApprovalCheck } from "./agent/dispatcher";
 import { streamChat } from "./agent/groq";
 import { buildSystemPrompt } from "./agent/prompts";
 import { createServices } from "./services";
-import { initRegistry } from "./agent/registry";
-import { ToolRegistry } from "./agent/registry";
+import { initRegistry, ToolRegistry, bootstrapResourceTools } from "./agent/registry";
 
 function DebugPanel() {
   const [logs, setLogs] = useState<string[]>([]);
@@ -94,6 +93,9 @@ function parseSlashCommand(text: string): { tool: string; params: Record<string,
   if (searchMatch) return { tool: "search.query", params: { query: searchMatch[1] } };
   const runMatch = t.match(/^\/run\s+(.+)/i);
   if (runMatch) return { tool: "shell.run", params: { command: runMatch[1] } };
+  if (/^\/resources\s+list\b/i.test(t)) return { tool: "resources.listManifests", params: {} };
+  const resourcesFindMatch = t.match(/^\/resources\s+find\s+(.+)/i);
+  if (resourcesFindMatch) return { tool: "resources.find", params: { query: resourcesFindMatch[1] } };
   return null;
 }
 
@@ -197,6 +199,10 @@ loadConfig()
         );
 
         registryRef.current = registry;
+
+        // Restore dynamically defined resource tools from previous sessions
+        await bootstrapResourceTools(registry, services);
+
         console.log("[App] ToolRegistry initialized with", registryRef.current.list().length, "tools");
 
         // Load recent memory context for session continuity
