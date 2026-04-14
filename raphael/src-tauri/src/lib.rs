@@ -4,6 +4,7 @@ mod search;
 mod google_oauth;
 mod gmail_api;
 mod shell_exec;
+mod resource_engine;
 
 
 use tauri::{
@@ -82,6 +83,14 @@ pub fn run() {
             shell_exec::write_to_process,
             shell_exec::kill_process,
             shell_exec::list_processes,
+
+            // Resource Engine
+            resource_engine::resource_define,
+            resource_engine::resource_list_manifests,
+            resource_engine::resource_upsert,
+            resource_engine::resource_find,
+            resource_engine::resource_list,
+            resource_engine::resource_delete,
         ])
         .run(tauri::generate_context!())
         .expect("error while running raphael");
