@@ -1,0 +1,782 @@
+File: words-of-world-tauri/src-tauri/src/main.rs
+Line: 4 to 6
+Type: potential_issue
+
+Comment:
+Handle the Result returned by run().
+
+In standard Tauri V2 applications, the run() function typically returns a Result type. Not handling this return value could silently ignore critical application startup failures, making debugging difficult.
+
+
+
+
+🔧 Proposed fix to add error handling
+
+ fn main() {
+-    words_of_world_tauri_lib::run()
++    words_of_world_tauri_lib::run()
++        .expect("error while running application");
+ }
+
+
+
+
+
+
+Please verify the return type of words_of_world_tauri_lib::run() in src-tauri/src/lib.rs and ensure proper error handling is in place if it returns a Result.
+
+Prompt for AI Agent:
+Verify each finding against the current code and only fix it if needed.
+
+In @words-of-world-tauri/src-tauri/src/main.rs around lines 4 - 6, The call to words_of_world_tauri_lib::run() in main currently ignores its return value; check the signature of words_of_world_tauri_lib::run() (in lib.rs) and if it returns Result update main to handle errors (e.g., match or use if let Err(e) = words_of_world_tauri_lib::run() { eprintln!("Failed to start app: {}", e); std::process::exit(1); } or .unwrap_or_else(|e| { eprintln!(...); std::process::exit(1); })), ensuring the error type is formatted appropriately for logging.
+
+============================================================================
+File: words-of-world-tauri/src-tauri/src/settings.rs
+Line: 78 to 95
+Type: potential_issue
+
+Comment:
+API key file not cleaned up when key becomes empty.
+
+When settings.groq_api_key is empty, the existing .groq_api_key file is left unchanged. If a user clears their API key, the old key remains on disk.
+
+
+
+
+🧹 Proposed fix to handle empty API key
+
+     if !settings.groq_api_key.is_empty() {
+         let api_key_path = api_key_path()?;
+         let mut file = OpenOptions::new()
+             .create(true)
+             .write(true)
+             .truncate(true)
+             .open(&api_key_path)
+             .map_err(|e| SettingsError::WriteError(e.to_string()))?;
+         file.write_all(settings.groq_api_key.as_bytes())
+             .map_err(|e| SettingsError::WriteError(e.to_string()))?;
+
+         #[cfg(unix)]
+         {
+             use std::os::unix::fs::PermissionsExt;
+             fs::set_permissions(&api_key_path, fs::Permissions::from_mode(0o600))
+                 .map_err(|e| SettingsError::WriteError(e.to_string()))?;
+         }
++    } else {
++        // Clean up API key file if key is cleared
++        let _ = delete_api_key();
+     }
+
+Prompt for AI Agent:
+Verify each finding against the current code and only fix it if needed.
+
+In @words-of-world-tauri/src-tauri/src/settings.rs around lines 78 - 95, When settings.groq_api_key is empty we should remove any existing API key file instead of leaving stale credentials on disk; modify the block that currently writes the key so that if settings.groq_api_key.is_empty() you call api_key_path()? to get the path and then attempt to remove the file with fs::remove_file(&api_key_path).map_err(|e| SettingsError::WriteError(e.to_string()))?, ignoring the error only if it’s a NotFound; otherwise keep the existing write logic (OpenOptions + write_all and unix permission setting) for the non-empty case, referencing settings.groq_api_key, api_key_path(), and SettingsError::WriteError to locate where to implement the removal.
+
+============================================================================
+File: words-of-world-tauri/src-tauri/src/transcription.rs
+Line: 55 to 74
+Type: potential_issue
+
+Comment:
+Add a request timeout to prevent indefinite hangs.
+
+The HTTP request has no timeout configured. If the network is slow or the API is unresponsive, this could cause the application to hang indefinitely, degrading user experience for a voice-to-text app where responsiveness is critical.
+
+
+
+
+🛡️ Proposed fix to add timeout
+
+-    let client = reqwest::Client::new();
++    let client = reqwest::Client::builder()
++        .timeout(std::time::Duration::from_secs(30))
++        .build()
++        .map_err(|e| TranscriptionError::RequestError(e.to_string()))?;
+
+Prompt for AI Agent:
+Verify each finding against the current code and only fix it if needed.
+
+In @words-of-world-tauri/src-tauri/src/transcription.rs around lines 55 - 74, The request uses reqwest::Client::new() and then client.post(...).send().await without a timeout, risking indefinite hangs; replace Client::new() with a client built via reqwest::Client::builder().timeout(Duration::from_secs(...)) (import std::time::Duration) and use that client for the POST to GROQ_WHISPER_API_URL so the client.post(...).multipart(form).send().await will fail with a timeout error instead of hanging; ensure TranscriptionError::RequestError is used for mapping timeout errors from send().await.
+
+============================================================================
+File: words-of-world-tauri/package.json
+Line: 4
+Type: potential_issue
+
+Comment:
+Add a meaningful package description.
+
+The description field is empty. Consider adding a brief description of the voice-to-text transcription application to improve package metadata quality.
+
+
+
+
+📝 Suggested description
+
+-  "description": "",
++  "description": "Cross-platform voice-to-text transcription desktop app with global hotkey support",
+
+Prompt for AI Agent:
+Verify each finding against the current code and only fix it if needed.
+
+In @words-of-world-tauri/package.json at line 4, The package.json "description" field is empty; update the "description" value to a concise one-line summary of the project (e.g., a voice-to-text transcription Tauri app that records audio and converts speech to text) so package metadata is meaningful—edit the "description" field in package.json to contain that brief description.
+
+============================================================================
+File: words-of-world-tauri/src-tauri/tauri.conf.json
+Line: 45 to 49
+Type: potential_issue
+
+Comment:
+Missing critical plugins for core functionality.
+
+Based on the app's requirements, the following essential plugins are not configured:
+
+1. global-shortcut - Required for the global hotkey functionality (Alt+Space for push-to-talk recording)
+2. clipboard-manager - Required for automatic text pasting into focused applications
+
+Without these plugins, the app's core voice-to-text and clipboard injection features will not function.
+
+
+
+
+Tauri V2 global-shortcut plugin configuration
+
+
+Tauri V2 clipboard-manager plugin configuration
+
+
+
+🔧 Proposed fix: Add missing plugins
+
+   "plugins": {
++    "global-shortcut": {
++      "shortcuts": [
++        {
++          "id": "record-voice",
++          "accelerator": "Alt+Space"
++        }
++      ]
++    },
++    "clipboard-manager": {},
+     "shell": {
+       "open": true
+     }
+   }
+
+
+
+Based on learnings, global hotkey functionality (default: Alt+Space) enables push-to-talk recording across all applications, and transcribed text is automatically pasted into the focused application via clipboard injection.
+
+Prompt for AI Agent:
+Verify each finding against the current code and only fix it if needed.
+
+In @words-of-world-tauri/src-tauri/tauri.conf.json around lines 45 - 49, The tauri.conf.json plugins block is missing required plugins for global hotkey and clipboard injection; update the "plugins" object to include "global-shortcut" (enable it and set any needed default accelerator like Alt+Space) and "clipboard-manager" (enable it) so the app can register the Alt+Space push-to-talk and perform clipboard paste operations; locate the "plugins" object in tauri.conf.json and add entries for "global-shortcut" and "clipboard-manager" with their enabled flags and any minimal configuration keys required by Tauri V2.
+
+============================================================================
+File: words-of-world-tauri/src-tauri/tauri.conf.json
+Line: 46 to 47
+Type: potential_issue
+
+Comment:
+Verify necessity and validate usage of shell plugin.
+
+The shell plugin with open: true allows the app to open arbitrary URLs and files. If not properly validated, this could be exploited for security attacks.
+
+
+
+
+Ensure that:
+1. The shell plugin is actually required for your app's functionality
+2. All shell operations validate and sanitize inputs to prevent command injection
+3. Consider restricting to specific allowed URLs/paths if possible
+
+If the shell plugin is not needed for core functionality, consider removing it to reduce attack surface.
+
+Prompt for AI Agent:
+Verify each finding against the current code and only fix it if needed.
+
+In @words-of-world-tauri/src-tauri/tauri.conf.json around lines 46 - 47, The tauri.conf.json enables the shell plugin ("shell": { "open": true }) which can open arbitrary URLs/files; verify whether the shell plugin is required and if so harden its usage: confirm usage points (search for shell.open / tauri.invoke handlers that call shell.open, or functions named shellOpen/handleShell) and add input validation/sanitization to those handlers to allow only whitelisted URLs/paths or safe schemes (e.g., https, file within app dir), reject or normalize untrusted input, and escape/deny any command-like strings; if the plugin is not needed remove the "shell" entry to reduce attack surface.
+
+============================================================================
+File: words-of-world-tauri/src-tauri/src/transcription.rs
+Line: 57 to 60
+Type: potential_issue
+
+Comment:
+Hardcoded MIME type may cause issues with non-WAV formats.
+
+The MIME type is hardcoded to audio/wav, but the Whisper API supports multiple formats (mp3, mp4, m4a, webm, etc.). If the recording format changes, this could cause API rejections or incorrect processing.
+
+
+
+
+♻️ Suggested improvement to detect MIME type from extension
+
++    let mime_type = match path.extension().and_then(|e| e.to_str()) {
++        Some("wav") => "audio/wav",
++        Some("mp3") => "audio/mpeg",
++        Some("m4a") => "audio/mp4",
++        Some("webm") => "audio/webm",
++        Some("ogg") => "audio/ogg",
++        _ => "audio/wav", // fallback
++    };
++
+     let file_part = multipart::Part::bytes(buffer)
+         .file_name(file_name.to_string())
+-        .mime_str("audio/wav")
++        .mime_str(mime_type)
+         .map_err(|e| TranscriptionError::RequestError(e.to_string()))?;
+
+Prompt for AI Agent:
+Verify each finding against the current code and only fix it if needed.
+
+In @words-of-world-tauri/src-tauri/src/transcription.rs around lines 57 - 60, The code currently hardcodes MIME as "audio/wav" when building the multipart Part (see multipart::Part::bytes(buffer) and file_part), which will fail for non-WAV inputs; update the logic that creates file_part to detect the MIME type from the file_name extension (or infer from buffer if available) and pass the correct MIME string to .mime_str(...), mapping common extensions (mp3, mp4, m4a, webm, wav) to their proper MIME types and falling back to "application/octet-stream" or a sensible default; ensure any errors from unknown/invalid MIME strings are converted to TranscriptionError::RequestError as before.
+
+============================================================================
+File: words-of-world-tauri/src-tauri/tauri.conf.json
+Line: 40 to 42
+Type: potential_issue
+
+Comment:
+Ensure microphone permissions are configured in entitlements.plist.
+
+For a voice-to-text transcription app, the macOS entitlements.plist file must include microphone usage permissions, otherwise the app will be unable to access audio input on macOS.
+
+
+
+
+
+🎤 Required entitlements.plist configuration
+
+Your entitlements.plist should include:
+
+
+
+
+
+  com.apple.security.device.audio-input
+
+  com.apple.security.cs.allow-jit
+
+  com.apple.security.cs.allow-unsigned-executable-memory
+
+
+
+
+
+And your Info.plist should include:
+
+NSMicrophoneUsageDescription
+This app requires microphone access for voice-to-text transcription.
+
+
+
+Based on learnings, this is a voice-to-text transcription app that requires audio input functionality.
+
+Prompt for AI Agent:
+Verify each finding against the current code and only fix it if needed.
+
+In @words-of-world-tauri/src-tauri/tauri.conf.json around lines 40 - 42, The macOS packaging is pointing to entitlements.plist via the "macOS" block in tauri.conf.json but the entitlements and Info.plist must include microphone permissions; update the entitlements.plist referenced by entitlements.plist to include the com.apple.security.device.audio-input (and any required code-signing keys like com.apple.security.cs.allow-jit and com.apple.security.cs.allow-unsigned-executable-memory) set to true, and add NSMicrophoneUsageDescription to the Info.plist referenced by "infoPlist" with a user-facing message (e.g., "This app requires microphone access for voice-to-text transcription."); ensure these files are saved and the tauri build uses the updated entitlements.plist and Info.plist.
+
+============================================================================
+File: words-of-world-tauri/src-tauri/capabilities/default.json
+Line: 9
+Type: potential_issue
+
+Comment:
+Verify if clipboard read permission is necessary.
+
+The app's core functionality only requires pasting transcribed text (clipboard write), not reading from the clipboard. The clipboard-manager:allow-read-text permission expands the attack surface and violates the principle of least privilege.
+
+
+
+
+Consider removing this permission unless there's a specific feature that requires reading clipboard content.
+
+Prompt for AI Agent:
+Verify each finding against the current code and only fix it if needed.
+
+In @words-of-world-tauri/src-tauri/capabilities/default.json at line 9, The permission "clipboard-manager:allow-read-text" in the capabilities list is likely unnecessary and expands attack surface; remove the "clipboard-manager:allow-read-text" entry from the default.json capabilities array (leaving "clipboard-manager:allow-write-text" if present) unless you can point to a specific feature that programmatically reads clipboard text; if that feature exists, document it in code/comments and keep the permission, otherwise delete the string to enforce least privilege.
+
+============================================================================
+File: words-of-world-tauri/src-tauri/capabilities/default.json
+Line: 8
+Type: potential_issue
+
+Comment:
+Verify necessity of opener:default and shell:allow-open permissions.
+
+These permissions allow the app to open external files/URLs and execute shell commands, which aren't mentioned in the core functionality. For a voice-to-text transcription app, these permissions could pose security risks if not essential.
+
+
+
+
+If these are used only for opening help documentation or similar non-critical features, consider:
+1. Removing them if not currently used
+2. Restricting shell:allow-open with a more specific allowlist (e.g., only allow opening URLs, not arbitrary shell commands)
+
+
+Also applies to: 21-21
+
+Prompt for AI Agent:
+Verify each finding against the current code and only fix it if needed.
+
+In @words-of-world-tauri/src-tauri/capabilities/default.json at line 8, Check whether the permissions "opener:default" and "shell:allow-open" declared in default.json are actually used by the app (search for usages of opener or shell open APIs); if they are unused, remove those entries from the capabilities list; if they are required only for safe actions (e.g., opening help URLs), replace "shell:allow-open" with a restrictive allowlist policy or a more specific capability and update the code to call only allowed actions (e.g., open URLs via a safe wrapper) so that "opener:default" and "shell:allow-open" are limited to the minimum required surface.
+
+============================================================================
+File: words-of-world-tauri/src-tauri/src/audio.rs
+Line: 210 to 213
+Type: potential_issue
+
+Comment:
+Potential hang if recording thread panics.
+
+If the recording thread panics after starting (e.g., during sample processing), done_rx.recv() will block indefinitely since no done signal will be sent. Consider using recv_timeout or checking if the thread is still alive.
+
+
+
+
+🛡️ Proposed fix with timeout
+
+         // Wait for WAV finalization before handing the path to the caller.
+         if let Some(rx) = self.done_receiver.lock().unwrap().take() {
+-            rx.recv().ok();
++            // Use timeout to avoid hanging if the recording thread panics
++            if rx.recv_timeout(std::time::Duration::from_secs(5)).is_err() {
++                eprintln!("[audio] warning: recording thread did not signal completion");
++            }
+         }
+
+Prompt for AI Agent:
+Verify each finding against the current code and only fix it if needed.
+
+In @words-of-world-tauri/src-tauri/src/audio.rs around lines 210 - 213, The current wait on the recorder completion uses self.done_receiver.lock().unwrap().take() and rx.recv().ok(), which can hang if the recording thread panics and never sends the done signal; change this to use a timeout-based receive (e.g., rx.recv_timeout(Duration::from_secs(...))) or first check the recording thread handle/alive status before blocking, and if the timeout elapses log/return an error instead of blocking forever — update the code paths that reference done_receiver and the rx.recv() call so they handle a timed-out result (or thread-not-alive) gracefully.
+
+============================================================================
+File: words-of-world-tauri/CLAUDE.md
+Line: 50 to 54
+Type: potential_issue
+
+Comment:
+Document cross-platform storage paths.
+
+The configuration section only documents macOS-specific paths (~/Library/Application Support/), but the app is described as cross-platform (line 3). Please document the equivalent paths for Windows and Linux platforms.
+
+Expected paths:
+- macOS: ~/Library/Application Support/words-of-world/
+- Windows: %APPDATA%\words-of-world\
+- Linux: ~/.config/words-of-world/ or ~/.local/share/words-of-world/
+
+
+
+
+📝 Suggested documentation enhancement
+
+ ## Configuration
+
+ - Default hotkey: Alt+Space
+-- API key stored in: ~/Library/Application Support/words-of-world/.groq_api_key
+-- Settings stored in: ~/Library/Application Support/words-of-world/settings.json
++- API key stored in:
++  - macOS: ~/Library/Application Support/words-of-world/.groq_api_key
++  - Windows: %APPDATA%\words-of-world\.groq_api_key
++  - Linux: ~/.config/words-of-world/.groq_api_key
++- Settings stored in:
++  - macOS: ~/Library/Application Support/words-of-world/settings.json
++  - Windows: %APPDATA%\words-of-world\settings.json
++  - Linux: ~/.config/words-of-world/settings.json
+
+Prompt for AI Agent:
+Verify each finding against the current code and only fix it if needed.
+
+In @words-of-world-tauri/CLAUDE.md around lines 50 - 54, Update the Configuration section in CLAUDE.md to document cross-platform storage paths: replace the macOS-only entries with explicit platform headings and paths for macOS (~/Library/Application Support/words-of-world/), Windows (%APPDATA%\words-of-world\), and Linux (~/.config/words-of-world/ or ~/.local/share/words-of-world/), and ensure the listed items for "Default hotkey", "API key stored in", and "Settings stored in" show the corresponding path per platform so readers can locate the API key and settings on each OS.
+
+============================================================================
+File: words-of-world-tauri/src-tauri/src/settings.rs
+Line: 25 to 31
+Type: potential_issue
+
+Comment:
+Security: API key stored in plaintext settings.json without restricted permissions.
+
+The groq_api_key field is serialized to settings.json (no permission restrictions) while also being written to .groq_api_key with 0600 permissions. This duplicates the sensitive data in a less protected file.
+
+Consider using #[serde(skip_serializing)] or #[serde(skip)] on the groq_api_key field to prevent it from being written to settings.json, keeping it only in the permission-restricted file.
+
+
+
+
+🔒 Proposed fix to exclude API key from settings.json
+
+ #[derive(Debug, Serialize, Deserialize, Clone)]
+ #[serde(rename_all = "camelCase")]
+ pub struct AppSettings {
++    #[serde(skip_serializing, default)]
+     pub groq_api_key: String,
+     pub hotkey: String,
+     pub push_to_talk: bool,
+ }
+
+
+Then update get_settings to populate the key from the secure file:
+
+pub fn get_settings() -> Result {
+    let path = settings_path()?;
+
+    let mut settings = if !path.exists() {
+        AppSettings::default()
+    } else {
+        let content = fs::read_to_string(&path).map_err(|e| SettingsError::ReadError(e.to_string()))?;
+        serde_json::from_str(&content).map_err(|e| SettingsError::ParseError(e.to_string()))?
+    };
+
+    // Load API key from secure storage
+    if let Ok(Some(key)) = get_api_key() {
+        settings.groq_api_key = key;
+    }
+
+    Ok(settings)
+}
+
+Prompt for AI Agent:
+Verify each finding against the current code and only fix it if needed.
+
+In @words-of-world-tauri/src-tauri/src/settings.rs around lines 25 - 31, The AppSettings struct currently serializes groq_api_key into settings.json which duplicates sensitive data; mark the groq_api_key field with serde attribute (e.g., #[serde(skip_serializing)] or #[serde(skip)]) so it is not written to settings.json, keep the field in AppSettings for runtime use, and update get_settings to read the persisted secure key (via get_api_key or similar secure storage) and populate settings.groq_api_key after deserializing from settings_path()/settings.json; ensure get_settings still returns an AppSettings with the key filled from the restricted file and errors are mapped to SettingsError as before.
+
+============================================================================
+File: words-of-world-tauri/src-tauri/tauri.conf.json
+Line: 23 to 25
+Type: potential_issue
+
+Comment:
+Critical security risk: CSP disabled.
+
+Setting csp to null completely disables Content Security Policy protection, exposing the application to cross-site scripting (XSS), code injection, and other web-based attacks. For a voice-to-text app that handles clipboard injection, this is particularly dangerous.
+
+
+
+
+🔒 Proposed fix: Enable CSP with appropriate policy
+
+     "security": {
+-      "csp": null
++      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'"
+     }
+
+
+Adjust the policy based on your app's specific needs, but avoid disabling CSP entirely.
+
+Prompt for AI Agent:
+Verify each finding against the current code and only fix it if needed.
+
+In @words-of-world-tauri/src-tauri/tauri.conf.json around lines 23 - 25, The configuration currently disables Content Security Policy by setting the security.csp value to null; change security.csp in the tauri configuration to a strict CSP string instead of null so the app enforces origin restrictions for resources (e.g., default-src to self, restrict script-src and style-src, and tightly allow only necessary connect-src or frame-src), and ensure the updated CSP string is applied where the tauri runtime reads the "security.csp" key so clipboard/voice input pages cannot execute or load untrusted scripts.
+
+============================================================================
+File: words-of-world-tauri/src-tauri/src/injector.rs
+Line: 193 to 203
+Type: potential_issue
+
+Comment:
+macOS accessibility check types "a" into the focused application.
+
+This check actually sends a keystroke to the currently focused app, which has an unintended side effect—it will insert the character "a" wherever the user is typing. Use the proper macOS API AXIsProcessTrusted() instead.
+
+
+
+
+🐛 Recommended fix using AXIsProcessTrusted
+
+ #[cfg(target_os = "macos")]
+ fn check_accessibility_macos() -> Result {
+-    let output = Command::new("osascript")
+-        .args(["-e", "tell application \"System Events\" to keystroke \"a\""])
+-        .output();
+-
+-    match output {
+-        Ok(o) => Ok(o.status.success()),
+-        Err(_) => Ok(false),
++    // Use the ApplicationServices framework to check accessibility
++    extern "C" {
++        fn AXIsProcessTrusted() -> bool;
+     }
++    Ok(unsafe { AXIsProcessTrusted() })
+ }
+
+
+Alternatively, link against the accessibility or core-foundation crate for a safer abstraction.
+
+
+
+Rust AXIsProcessTrusted macOS accessibility check
+
+Prompt for AI Agent:
+Verify each finding against the current code and only fix it if needed.
+
+In @words-of-world-tauri/src-tauri/src/injector.rs around lines 193 - 203, The current check_accessibility_macos function sends an "a" keystroke via osascript which mutates user input; replace that logic with a proper AXIsProcessTrusted check: remove the Command/osascript call in check_accessibility_macos and instead call the macOS Accessibility API (AXIsProcessTrusted) through a safe binding (e.g., the accessibility or core-foundation crate) or a minimal FFI to ApplicationServices, returning Ok(true/false) based on AXIsProcessTrusted and mapping any binding errors to Err(String); keep the function signature check_accessibility_macos() -> Result and ensure it is only compiled on macOS via #[cfg(target_os = "macos")].
+
+============================================================================
+File: words-of-world-tauri/src/lib/components/Preferences.svelte
+Line: 150 to 157
+Type: potential_issue
+
+Comment:
+Cancel button should not be disabled when there are no changes.
+
+Disabling Cancel when !hasChanges is counterintuitive UX. Users expect Cancel to always close the dialog, regardless of whether changes were made. Currently, if a user opens preferences just to view settings, they cannot click Cancel to close.
+
+
+♻️ Proposed fix
+
+-
++
+           Cancel
+
+Prompt for AI Agent:
+Verify each finding against the current code and only fix it if needed.
+
+In @words-of-world-tauri/src/lib/components/Preferences.svelte around lines 150 - 157, The Cancel button is currently disabled when !hasChanges which prevents closing the dialog; update the button rendering so the Cancel button's disabled prop only depends on saving (not hasChanges). Locate the Cancel button in Preferences.svelte (the element with on:click={handleCancel}) and remove the hasChanges check from its disabled attribute so it reads disabled={saving} (or equivalent), leaving the Save button logic unchanged.
+
+============================================================================
+File: words-of-world-tauri/src/lib/components/Preferences.svelte
+Line: 303 to 305
+Type: potential_issue
+
+Comment:
+Accessibility concern: Hidden checkbox is removed from accessibility tree.
+
+Using display: none on the checkbox input removes it from the accessibility tree, making it invisible to screen readers. Users relying on assistive technology won't be able to interact with or hear the checkbox state.
+
+
+♻️ Proposed fix using visually-hidden technique
+
+   .checkbox-label input[type="checkbox"] {
+-    display: none;
++    position: absolute;
++    width: 1px;
++    height: 1px;
++    padding: 0;
++    margin: -1px;
++    overflow: hidden;
++    clip: rect(0, 0, 0, 0);
++    white-space: nowrap;
++    border: 0;
+   }
+
+Prompt for AI Agent:
+Verify each finding against the current code and only fix it if needed.
+
+In @words-of-world-tauri/src/lib/components/Preferences.svelte around lines 303 - 305, The CSS rule hiding the checkbox (.checkbox-label input[type="checkbox"]) uses display:none which removes it from the accessibility tree; change this to a visually-hidden approach so the input remains focusable and readable by screen readers: replace the display:none rule with a visually-hidden style (e.g., position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0) and apply it to the checkbox input (or a .visually-hidden helper class) in Preferences.svelte, ensuring the label still targets the input so click/keyboard interaction and screen-reader announcement of the checked state work.
+
+============================================================================
+File: words-of-world-tauri/src/routes/+page.svelte
+Line: 118 to 120
+Type: potential_issue
+
+Comment:
+Disable button during processing to prevent duplicate actions.
+
+The record button remains clickable during the 'processing' state. Users could click while transcription is in progress, potentially causing unexpected behavior.
+
+
+
+
+🛡️ Suggested fix
+
+-
++
+       {$recordingState === 'recording' ? 'Stop' : 'Record'}
+
+Prompt for AI Agent:
+Verify each finding against the current code and only fix it if needed.
+
+In @words-of-world-tauri/src/routes/+page.svelte around lines 118 - 120, The record button is still clickable during the 'processing' state; update the  that uses toggleRecording and class "record-btn" so it is disabled while $recordingState === 'processing' (e.g., add a disabled binding/attribute and ARIA like aria-busy) to prevent duplicate actions, and optionally early-return in the toggleRecording handler when recordingState === 'processing' to double-guard against spurious clicks.
+
+============================================================================
+File: words-of-world-tauri/src-tauri/src/injector.rs
+Line: 205 to 224
+Type: potential_issue
+
+Comment:
+Windows accessibility check does not verify input injection capability.
+
+Opening process ID 0xFFFF (an arbitrary/likely-invalid PID) doesn't verify that SendInput will work. UIPI (User Interface Privilege Isolation) blocks input injection to higher-integrity processes regardless of this check. Consider removing this check or replacing it with a more meaningful validation.
+
+
+
+
+💡 Suggested approach
+
+On Windows, there's no simple pre-check for SendInput permissions—it generally works unless targeting elevated processes. Consider:
+
+1. Return Ok(true) unconditionally (input injection typically works for non-elevated targets)
+2. Or attempt a no-op SendInput with zero events as a sanity check
+
+ #[cfg(target_os = "windows")]
+ fn check_accessibility_windows() -> Result {
+-    use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+-    use windows::Win32::Foundation::HANDLE;
+-
+-    unsafe {
+-        let explorer: HANDLE = OpenProcess(
+-            PROCESS_QUERY_LIMITED_INFORMATION,
+-            false,
+-            0xFFFF,
+-        ).unwrap_or(HANDLE::default());
+-
+-        if explorer.is_invalid() {
+-            Ok(false)
+-        } else {
+-            let _ = windows::Win32::System::Threading::CloseHandle(explorer);
+-            Ok(true)
+-        }
+-    }
++    // SendInput generally works for non-elevated target windows
++    // There's no reliable pre-flight check; failures happen at injection time
++    Ok(true)
+ }
+
+Prompt for AI Agent:
+Verify each finding against the current code and only fix it if needed.
+
+In @words-of-world-tauri/src-tauri/src/injector.rs around lines 205 - 224, The current check_accessibility_windows() opens an arbitrary PID (0xFFFF) which doesn't validate SendInput capability; replace this with a meaningful check by either returning Ok(true) unconditionally from check_accessibility_windows() (since SendInput generally works for non-elevated targets) or perform a harmless SendInput sanity call (e.g., call SendInput with zero events) and map its success to Ok(true)/Ok(false); update the function body of check_accessibility_windows to implement one of these approaches and remove the arbitrary OpenProcess logic and CloseHandle calls.
+
+============================================================================
+File: words-of-world-tauri/src/routes/+page.svelte
+Line: 33 to 39
+Type: potential_issue
+
+Comment:
+onDestroy does not await async callbacks.
+
+Svelte's onDestroy ignores the returned promise, so await unregisterHotkey() won't complete before destruction. This could leave the hotkey registered if the component unmounts while the app continues running.
+
+
+
+
+🛡️ Suggested approach: synchronous cleanup or accept fire-and-forget
+
+If guaranteed cleanup is needed, consider a synchronous approach or accept that cleanup is best-effort:
+
+-  onDestroy(async () => {
++  onDestroy(() => {
+     unlistenTrayRecord?.();
+     unlistenOpenPrefs?.();
+     if (settings?.hotkey) {
+-      await unregisterHotkey(settings.hotkey);
++      // Fire-and-forget: Svelte doesn't await onDestroy
++      unregisterHotkey(settings.hotkey);
+     }
+   });
+
+Prompt for AI Agent:
+Verify each finding against the current code and only fix it if needed.
+
+In @words-of-world-tauri/src/routes/+page.svelte around lines 33 - 39, onDestroy currently awaits an async call (unregisterHotkey) which Svelte ignores; change the cleanup to be synchronous/fire-and-for-get: call unregisterHotkey(settings.hotkey) without await and attach a .catch handler to log errors (or wrap it in a promise-returning fire-and-forget helper), and keep calling unlistenTrayRecord?.() and unlistenOpenPrefs?.() as-is; alternatively, move hotkey teardown to a true app-shutdown hook if you need guaranteed completion — update references in this file to onDestroy, unregisterHotkey, unlistenTrayRecord, unlistenOpenPrefs and settings.hotkey accordingly.
+
+============================================================================
+File: words-of-world-tauri/src-tauri/src/injector.rs
+Line: 150 to 154
+Type: potential_issue
+
+Comment:
+SendInput return value is not checked.
+
+SendInput returns the number of events successfully inserted. If the target window has higher integrity level (UIPI), inputs may be blocked. Consider checking the return value to detect failures.
+
+
+
+
+🛡️ Suggested fix
+
+     unsafe {
+-        SendInput(&inputs, std::mem::size_of::() as i32);
++        let sent = SendInput(&inputs, std::mem::size_of::() as i32);
++        if sent != inputs.len() as u32 {
++            return Err(format!("SendInput only sent {} of {} events", sent, inputs.len()));
++        }
+     }
+
+Prompt for AI Agent:
+Verify each finding against the current code and only fix it if needed.
+
+In @words-of-world-tauri/src-tauri/src/injector.rs around lines 150 - 154, The call to SendInput in the unsafe block currently ignores its return value; update the injection routine (the unsafe block that calls SendInput) to capture the returned UINT (number of events inserted), compare it against the expected count (e.g., 1 or inputs.len()), and if it is less than expected call GetLastError to obtain the failure code and return an Err (or map to your function's error type) so failures like UIPI blocking are detected and surfaced; ensure you still keep the unsafe call but add the check and proper error propagation from the function that contains SendInput.
+
+============================================================================
+File: words-of-world-tauri/src/routes/+page.svelte
+Line: 61 to 69
+Type: potential_issue
+
+Comment:
+Potential race condition between status check and action.
+
+Rapid hotkey presses could cause check_recording_status to return stale results, leading to double-start or double-stop attempts. Consider using the local $recordingState as the source of truth or adding a guard:
+
+
+
+
+🛡️ Suggested fix using local state guard
+
+   async function toggleRecording() {
+-    const isRecording = await invoke('check_recording_status');
+-
+-    if (isRecording) {
++    if ($recordingState === 'recording') {
+       await stopRecording();
+-    } else {
++    } else if ($recordingState === 'idle') {
+       await startRecording();
+     }
++    // Ignore if 'processing'
+   }
+
+Prompt for AI Agent:
+Verify each finding against the current code and only fix it if needed.
+
+In @words-of-world-tauri/src/routes/+page.svelte around lines 61 - 69, The toggleRecording function currently calls invoke('check_recording_status') which can return stale results under rapid calls; change toggleRecording to use the local recording state (e.g., the $recordingState store) as the source of truth and add an in-flight guard to prevent concurrent toggles: check and lock a boolean flag (e.g., isToggling) at the start of toggleRecording, decide to call startRecording or stopRecording based on the local $recordingState rather than check_recording_status, set the guard until the awaited startRecording/stopRecording completes (and update the local store on success), and finally clear the guard so rapid hotkey presses cannot trigger double-start/double-stop; keep references to startRecording, stopRecording, toggleRecording, and check_recording_status so you modify the correct functions.
+
+============================================================================
+File: words-of-world-tauri/src-tauri/src/injector.rs
+Line: 19 to 45
+Type: potential_issue
+
+Comment:
+Race condition when inject_text is called in quick succession.
+
+If the user triggers multiple transcriptions rapidly (e.g., double-tap of the hotkey), the original clipboard content can be lost:
+1. Call 1 saves original "A", writes text1
+2. Call 2 (within 500ms) saves text1 as "original", overwrites with text2
+3. Restoration restores text1 instead of "A"
+
+Consider using a sequence counter or lock to serialize injections, or queue injection requests.
+
+
+
+
+🛡️ Sketch of a serialization approach
+
+ pub struct InjectorState {
+     original_clipboard: Arc>>,
++    injection_lock: Arc>,
+ }
+
+ #[tauri::command]
+ pub async fn inject_text(app: AppHandle, text: String) -> Result {
+     let state = app.state::();
++    let _guard = state.injection_lock.lock().await; // Serialize injections
+
+     let original = get_clipboard_content(&app).await;
+     // ... rest of implementation
++    // Wait for restoration before releasing lock
++    tokio::time::sleep(Duration::from_millis(500)).await;
++    if let Some(original_text) = state.original_clipboard.lock().await.take() {
++        let _ = set_clipboard_content(&app, &original_text).await;
++    }
++    Ok(())
+-    let state_clone = state.original_clipboard.clone();
+-    // ... spawned task
+ }
+
+Prompt for AI Agent:
+Verify each finding against the current code and only fix it if needed.
+
+In @words-of-world-tauri/src-tauri/src/injector.rs around lines 19 - 45, The race occurs because multiple inject_text calls overwrite state.original_clipboard; fix by making injections serializable using a per-injection token or counter: add a last_injection_id (AtomicU64 or Mutex) to InjectorState, when inject_text begins increment and capture an id, save the original clipboard into original_clipboard along with that id (e.g., store Option), and when the background restore runs only restore if the stored id matches the current id (or last_injection_id) so a newer injection won’t be clobbered by an earlier restore; update inject_text (and the spawn closure) to set/read the tuple and compare ids around set_clipboard_content/get_clipboard_content and when taking the original to ensure correct, serialized restoration.

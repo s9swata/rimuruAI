@@ -5,9 +5,9 @@ import IDENTITY from "./bootstrap/IDENTITY.md?raw";
 import TOOLS_GUIDE from "./bootstrap/TOOLS.md?raw";
 
 export const MODELS = {
-  orchestrator: "qwen-qwen3-32b",                    // Groq — structured JSON routing
-  fast:         "llama-3.1-8b-instant",               // Groq — low latency for simple queries
-  powerful:     "llama-3.3-70b-versatile",           // Groq — complex reasoning / synthesis
+  orchestrator: "openai/gpt-oss-120b", // Groq — structured JSON routing
+  fast: "llama-3.1-8b-instant", // Groq — low latency for simple queries
+  powerful: "llama-3.3-70b-versatile", // Groq — complex reasoning / synthesis
 } as const;
 
 export type ModelTier = keyof typeof MODELS;
@@ -25,9 +25,10 @@ export function buildSystemPrompt(
 
   // ── Orchestrator ──────────────────────────────────────────────────────────
   if (tier === "orchestrator") {
-    const tools = toolList && toolList.trim().length > 0
-      ? toolList
-      : "(no tools registered)";
+    const tools =
+      toolList && toolList.trim().length > 0
+        ? toolList
+        : "(no tools registered)";
 
     return `You are Raphael — an agent, not an assistant. Your job: analyze the user's message, then decide (1) which model tier to use and (2) which single tool to call, if any. Respond with ONLY valid JSON — no explanation, no markdown.
 
@@ -101,17 +102,19 @@ ${SOUL}
 
 ${AGENTS}`;
 
-  const toneLine = tone === "jarvis"
-    ? `Address the user as "${address}". Dry-witted, supremely competent. Slight sarcasm welcome; hedging is not. Get to the point.`
-    : tone === "professional"
-    ? `Address the user as "${address}". Direct and efficient.`
-    : `Address the user as "${address}". Warm but not verbose.`;
+  const toneLine =
+    tone === "jarvis"
+      ? `Address the user as "${address}". Dry-witted, supremely competent. Slight sarcasm welcome; hedging is not. Get to the point.`
+      : tone === "professional"
+        ? `Address the user as "${address}". Direct and efficient.`
+        : `Address the user as "${address}". Warm but not verbose.`;
 
-  const verbLine = verbosity === "terse"
-    ? "Keep responses short and direct. No preamble. No trailing summaries."
-    : verbosity === "verbose"
-    ? "Be thorough and detailed."
-    : "Balance brevity with completeness.";
+  const verbLine =
+    verbosity === "terse"
+      ? "Keep responses short and direct. No preamble. No trailing summaries."
+      : verbosity === "verbose"
+        ? "Be thorough and detailed."
+        : "Balance brevity with completeness.";
 
   const toolResultGuidance = `
 ## Tool result synthesis
