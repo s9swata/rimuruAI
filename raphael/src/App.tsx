@@ -207,21 +207,28 @@ loadConfig()
         setThinking(false);
         return;
       }
-      const plan = await orchestrate(text, history, config.persona, profileContent, registryRef.current).catch((e) => {
+
+      const MAX_TOOL_ITERS = 3;
+      let toolContext = "";
+      let lastPlan = await orchestrate(text, history, config.persona, profileContent, registryRef.current).catch((e) => {
         console.error("Orchestrator failed, falling back to fast model:", e);
         return { model: "fast" as const, tool: null, params: null, intent: "direct response" };
       });
 
-      let toolContext = "";
-      if (plan.tool) {
+      for (let iter = 0; iter < MAX_TOOL_ITERS && lastPlan.tool; iter++) {
+        const plan = lastPlan;
         const cardId = crypto.randomUUID();
         chatDispatch({ type: "ADD_TOOL", card: { id: cardId, tool: plan.tool, status: "running" } });
+
+        let iterContext = "";
 
         if (plan.tool === "gmail.draftEmail") {
           const draft = plan.params as unknown as { to?: string; subject?: string; body?: string };
           chatDispatch({ type: "ADD_EMAIL", draft: { id: crypto.randomUUID(), to: draft.to ?? "", subject: draft.subject ?? "", body: draft.body ?? "" } });
           chatDispatch({ type: "UPDATE_TOOL", id: cardId, status: "done", result: "Draft ready for review" });
-          toolContext = `Email composer opened. To: "${draft.to ?? ""}", Subject: "${draft.subject ?? ""}", Body: "${draft.body ?? ""}". The compose window is visible — tell the user to review and hit Send.`;
+          iterContext = `Email composer opened. To: "${draft.to ?? ""}", Subject: "${draft.subject ?? ""}", Body: "${draft.body ?? ""}". The compose window is visible — tell the user to review and hit Send.`;
+          toolContext = toolContext ? toolContext + "\n\n" + iterContext : iterContext;
+          break;
         } else {
           const needsApproval = requiresApprovalCheck(plan.tool, config);
           if (needsApproval) {
@@ -239,31 +246,40 @@ loadConfig()
           const registry = registryRef.current;
           const result = await dispatch(plan.tool, plan.params ?? {}, registry);
           if (result.success) {
-            const raw = JSON.stringify(result.data, null, 2).slice(0, 1000);
             // For shell.run with empty output, give the model an explicit signal
             // instead of an empty string that causes hallucination from history.
             if (plan.tool === "shell.run") {
               const d = result.data as { exitCode?: number; output?: string };
               const out = d.output?.trim() ?? "";
-              toolContext = out.length > 0
+              iterContext = out.length > 0
                 ? `Command ran successfully (exit 0).\n\nOutput:\n${out}`
                 : `Command ran successfully (exit 0). No output was produced — this is normal for commands like venv creation, mv, mkdir, etc.`;
             } else {
-              toolContext = raw;
+              iterContext = JSON.stringify(result.data, null, 2).slice(0, 1000);
             }
-            chatDispatch({ type: "UPDATE_TOOL", id: cardId, status: "done", result: toolContext.slice(0, 120) });
+            chatDispatch({ type: "UPDATE_TOOL", id: cardId, status: "done", result: iterContext.slice(0, 120) });
             if (plan.tool === "memory.saveProfile") {
               invoke<string>("load_profile").then(setProfileContent).catch(console.error);
             }
           } else {
             chatDispatch({ type: "UPDATE_TOOL", id: cardId, status: "error", result: result.error });
-            toolContext = `Tool error: ${result.error}`;
+            iterContext = `Tool error: ${result.error}`;
           }
+        }
+
+        toolContext = toolContext ? toolContext + "\n\n" + iterContext : iterContext;
+
+        // Re-orchestrate for potential chaining (unless we've hit the last iteration)
+        if (iter < MAX_TOOL_ITERS - 1) {
+          lastPlan = await orchestrate(text, history, config.persona, profileContent, registryRef.current, iterContext).catch((e) => {
+            console.error("Re-orchestration failed, stopping chain:", e);
+            return { model: "fast" as const, tool: null, params: null, intent: "direct response" };
+          });
         }
       }
 
-      const model = pickModel(plan.model);
-      const systemPrompt = buildSystemPrompt(plan.model === "fast" ? "fast" : "powerful", config.persona, profileContent);
+      const model = pickModel(lastPlan.model);
+      const systemPrompt = buildSystemPrompt(lastPlan.model === "fast" ? "fast" : "powerful", config.persona, profileContent);
       const contextMsg = toolContext ? `Tool result:\n${toolContext}\n\nNow respond to the user naturally.` : text;
 
       const replyId = crypto.randomUUID();
