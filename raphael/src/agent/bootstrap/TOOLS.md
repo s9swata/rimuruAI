@@ -15,6 +15,14 @@ Preferred for: any filesystem op, git, scripts, installs, system state checks
 - `memory.saveProfile` for user preferences and biographical facts
 - `memory.query` for third-party entity lookup — NOT for user prefs (those are in profile)
 
+## Identity & Profile Facts
+When the user states personal facts about themselves (name, role, preferences, location, relationships, etc.):
+1. ALWAYS call `memory.saveProfile` immediately with the new fact
+2. Do NOT rely on `memory.store` alone for identity facts — it does not persist across sessions
+3. Format for saveProfile: pass the fact as a concise string
+   Example: if user says "my name is Saswata", call `memory.saveProfile` with `info: "Name: Saswata"`
+4. Chain both if useful: call `memory.saveProfile` for identity, AND `memory.store` for graph relationships
+
 ## calendar.*
 - ISO 8601 datetimes always
 - `checkAvailability` before `createEvent` when scheduling

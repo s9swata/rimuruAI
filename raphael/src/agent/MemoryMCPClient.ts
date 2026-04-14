@@ -8,6 +8,7 @@
 
 import { createMCPClient } from "@ai-sdk/mcp";
 import type { MCPClient } from "@ai-sdk/mcp";
+import { invoke } from "@tauri-apps/api/core";
 import { BackendStdioTransport } from "./BackendStdioTransport";
 import { ToolResult } from "./types";
 
@@ -107,9 +108,25 @@ export async function listMemoryToolNames(): Promise<string[]> {
 async function _init(): Promise<MCPClient> {
   console.log("[MemoryMCPClient] Starting @modelcontextprotocol/server-memory via Rust...");
 
+  // Resolve the app data directory from Rust so we get the correct
+  // platform-native path (e.g. ~/Library/Application Support/raphael on macOS)
+  // without hardcoding OS-specific conventions in TypeScript.
+  let storagePath: string;
+  try {
+    const storeDir = await invoke<string>("get_store_dir");
+    // Use a forward slash even on Windows — npx / Node handle both
+    storagePath = `${storeDir}/memory_store.json`;
+  } catch (e) {
+    // Fallback: shouldn't happen in a running Tauri app, but be defensive.
+    console.warn("[MemoryMCPClient] Could not get store dir from Rust, using fallback:", e);
+    storagePath = "memory_store.json";
+  }
+
+  console.log(`[MemoryMCPClient] Persisting knowledge graph to: ${storagePath}`);
+
   _transport = new BackendStdioTransport({
     program: "npx",
-    args: ["-y", "@modelcontextprotocol/server-memory"],
+    args: ["-y", "@modelcontextprotocol/server-memory", "--storage-path", storagePath],
   });
 
   const client = await createMCPClient({

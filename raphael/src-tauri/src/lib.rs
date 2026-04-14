@@ -72,6 +72,7 @@ pub fn run() {
             commands::save_config,
             commands::load_profile,
             commands::update_profile,
+            commands::get_store_dir,
             commands::http_fetch,
 
             commands::graphify_query,

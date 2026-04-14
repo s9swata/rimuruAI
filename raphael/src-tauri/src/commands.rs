@@ -132,6 +132,14 @@ fn store_dir() -> PathBuf {
         .join("raphael")
 }
 
+/// Expose the app data directory to the frontend so TypeScript can construct
+/// paths to persistent files (e.g. the MCP memory store) without hardcoding
+/// platform-specific conventions.
+#[tauri::command]
+pub fn get_store_dir() -> String {
+    store_dir().to_string_lossy().into_owned()
+}
+
 fn log_path() -> PathBuf {
     store_dir().join("raphael.log")
 }
