@@ -89,6 +89,7 @@ export default function App() {
   const [thinking, setThinking] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [profileContent, setProfileContent] = useState<string>("");
+  const [startupMemory, setStartupMemory] = useState<string>("");
   const [pendingApproval, setPendingApproval] = useState<{ cardId: string; tool: string; params: Record<string, unknown> } | null>(null);
   const approvalResolveRef = useRef<((ok: boolean) => void) | null>(null);
   const { state, dispatch: chatDispatch } = useChatStore();
@@ -118,7 +119,7 @@ loadConfig()
       .catch((e) => console.error("Failed to load profile:", e));
 
     createServices()
-      .then((services) => {
+      .then(async (services) => {
         const registry = initRegistry(services);
 
         // shell.run — agent-invocable tool that runs a shell command and streams output to the UI
@@ -183,6 +184,19 @@ loadConfig()
 
         registryRef.current = registry;
         console.log("[App] ToolRegistry initialized with", registryRef.current.list().length, "tools");
+
+        // Load recent memory context for session continuity
+        try {
+          const memResult = await registry.execute("memory.query", { query: "recent context" });
+          if (memResult.success && memResult.data) {
+            const memStr = typeof memResult.data === "string"
+              ? memResult.data
+              : JSON.stringify(memResult.data);
+            setStartupMemory(memStr.slice(0, 2000));
+          }
+        } catch {
+          // memory unavailable — not fatal
+        }
       })
       .catch((e) => console.error("Failed to init registry:", e));
   }, []);
@@ -210,7 +224,8 @@ loadConfig()
 
       const MAX_TOOL_ITERS = 3;
       let toolContext = "";
-      let lastPlan = await orchestrate(text, history, config.persona, profileContent, registryRef.current).catch((e) => {
+      const combinedProfile = [profileContent, startupMemory].filter(Boolean).join("\n\n---\n\n");
+      let lastPlan = await orchestrate(text, history, config.persona, combinedProfile, registryRef.current).catch((e) => {
         console.error("Orchestrator failed, falling back to fast model:", e);
         return { model: "fast" as const, tool: null, params: null, intent: "direct response" };
       });
@@ -272,7 +287,7 @@ loadConfig()
 
         // Re-orchestrate for potential chaining (unless we've hit the last iteration)
         if (iter < MAX_TOOL_ITERS - 1) {
-          lastPlan = await orchestrate(text, history, config.persona, profileContent, registryRef.current, iterContext).catch((e) => {
+          lastPlan = await orchestrate(text, history, config.persona, combinedProfile, registryRef.current, iterContext).catch((e) => {
             console.error("Re-orchestration failed, stopping chain:", e);
             return { model: "fast" as const, tool: null, params: null, intent: "direct response" };
           });
@@ -280,7 +295,7 @@ loadConfig()
       }
 
       const model = pickModel(lastPlan.model);
-      const systemPrompt = buildSystemPrompt(lastPlan.model === "fast" ? "fast" : "powerful", config.persona, profileContent);
+      const systemPrompt = buildSystemPrompt(lastPlan.model === "fast" ? "fast" : "powerful", config.persona, combinedProfile);
       const contextMsg = toolContext
         ? `Tool result:\n${toolContext.slice(0, 8000)}\n\nNow respond to the user naturally.`
         : text;
@@ -311,7 +326,7 @@ loadConfig()
     } finally {
       setThinking(false);
     }
-  }, [config, history, chatDispatch]);
+  }, [config, history, chatDispatch, profileContent, startupMemory]);
 
 if (ready === null) return null;
   if (!ready) return <Onboarding onComplete={() => setReady(true)} />;
