@@ -7,11 +7,20 @@ use audio::AudioRecorder;
 use injector::InjectorState;
 use settings::AppSettings;
 use std::sync::Mutex;
-use tauri::State;
+use tauri::{
+    image::Image,
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    Emitter, Manager, State,
+};
 
 pub struct AppState {
     recorder: Mutex<AudioRecorder>,
-    injector: InjectorState,
+    http_client: reqwest::Client,
+}
+
+pub struct TrayMenuState {
+    record_item: MenuItem<tauri::Wry>,
 }
 
 #[tauri::command]
@@ -40,29 +49,41 @@ fn save_settings(settings: AppSettings) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn transcribe_audio(audio_path: String) -> Result<String, String> {
+async fn transcribe_audio(audio_path: String, state: State<'_, AppState>) -> Result<String, String> {
     let api_key = settings::get_api_key()
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "API key not configured. Please set your Groq API key first.".to_string())?;
 
-    transcription::transcribe_audio(&audio_path, &api_key)
+    transcription::transcribe_audio(&audio_path, &api_key, &state.http_client)
         .await
         .map(|result| result.text)
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn start_recording(state: State<AppState>) -> Result<String, String> {
-    let state = state.inner();
+fn start_recording(app: tauri::AppHandle, state: State<AppState>) -> Result<String, String> {
     let recorder = state.recorder.lock().map_err(|e| e.to_string())?;
-    recorder.start_recording().map_err(|e| e.to_string())
+    let result = recorder.start_recording().map_err(|e| e.to_string())?;
+    if let Some(tray_state) = app.try_state::<TrayMenuState>() {
+        let _ = tray_state.record_item.set_text("Stop Recording");
+    }
+    if let Some(tray) = app.tray_by_id("main-tray") {
+        let _ = tray.set_tooltip(Some("WordsOfWorld - Recording..."));
+    }
+    Ok(result)
 }
 
 #[tauri::command]
-fn stop_recording(state: State<AppState>) -> Result<Option<String>, String> {
-    let state = state.inner();
+fn stop_recording(app: tauri::AppHandle, state: State<AppState>) -> Result<Option<String>, String> {
     let recorder = state.recorder.lock().map_err(|e| e.to_string())?;
-    recorder.stop_recording().map_err(|e| e.to_string())
+    let result = recorder.stop_recording().map_err(|e| e.to_string())?;
+    if let Some(tray_state) = app.try_state::<TrayMenuState>() {
+        let _ = tray_state.record_item.set_text("Start Recording");
+    }
+    if let Some(tray) = app.tray_by_id("main-tray") {
+        let _ = tray.set_tooltip(Some("WordsOfWorld - Voice to Text"));
+    }
+    Ok(result)
 }
 
 #[tauri::command]
@@ -70,6 +91,66 @@ fn check_recording_status(state: State<AppState>) -> Result<bool, String> {
     let state = state.inner();
     let recorder = state.recorder.lock().map_err(|e| e.to_string())?;
     Ok(recorder.check_recording_status())
+}
+
+fn setup_tray(app: &tauri::App) -> Result<MenuItem<tauri::Wry>, Box<dyn std::error::Error>> {
+    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+    let show = MenuItem::with_id(app, "show", "Show Window", true, None::<&str>)?;
+    let record = MenuItem::with_id(app, "record", "Start Recording", true, None::<&str>)?;
+    let prefs = MenuItem::with_id(app, "prefs", "Preferences", true, None::<&str>)?;
+
+    let menu = Menu::with_items(app, &[&record, &prefs, &show, &quit])?;
+
+    let icon_bytes = include_bytes!("../icons/32x32.png");
+    let icon = Image::from_bytes(icon_bytes)?;
+
+    TrayIconBuilder::with_id("main-tray")
+        .icon(icon)
+        .menu(&menu)
+        .tooltip("WordsOfWorld - Voice to Text")
+        .on_menu_event(|app: &tauri::AppHandle, event| {
+            match event.id.as_ref() {
+                "quit" => {
+                    app.exit(0);
+                }
+                "show" => {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                }
+                "record" => {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.emit("tray-record", ());
+                    }
+                }
+                "prefs" => {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                        let _ = window.emit("open-preferences", ());
+                    }
+                }
+                _ => {}
+            }
+        })
+        .on_tray_icon_event(|tray: &tauri::tray::TrayIcon, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                let app = tray.app_handle();
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+        })
+        .build(app)?;
+
+    Ok(record)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -81,10 +162,33 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
+        .setup(|app| {
+            let record_item = setup_tray(app)?;
+            app.manage(TrayMenuState { record_item });
+
+            // Pre-warm TLS connection so the first transcription has zero handshake cost.
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Some(state) = handle.try_state::<AppState>() {
+                    let _ = state
+                        .http_client
+                        .head("https://api.groq.com")
+                        .send()
+                        .await;
+                    eprintln!("[http] connection to api.groq.com pre-warmed");
+                }
+            });
+
+            Ok(())
+        })
         .manage(AppState {
             recorder: Mutex::new(AudioRecorder::new()),
-            injector: InjectorState::default(),
+            http_client: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(30))
+                .build()
+                .expect("failed to build HTTP client"),
         })
+        .manage(InjectorState::default())
         .invoke_handler(tauri::generate_handler![
             greet,
             injector::inject_text,

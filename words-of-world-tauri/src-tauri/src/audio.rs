@@ -2,36 +2,15 @@ use anyhow::{anyhow, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use hound::{SampleFormat, WavSpec, WavWriter};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
 
-const VAD_THRESHOLD_DB: f32 = -45.0;
-const SPEECH_REQUIRED_MS: u64 = 300;
-const SILENCE_REQUIRED_MS: u64 = 500;
-const SAMPLE_RATE: u32 = 16000;
-const CHANNELS: u16 = 1;
-
-#[derive(Clone, Debug)]
-struct VadState {
-    speech_detected: bool,
-    silence_start_ms: Option<u64>,
-    speech_start_ms: Option<u64>,
-}
-
-impl VadState {
-    fn new() -> Self {
-        Self {
-            speech_detected: false,
-            silence_start_ms: None,
-            speech_start_ms: None,
-        }
-    }
-}
+const TARGET_SAMPLE_RATE: u32 = 16_000;
 
 pub struct AudioRecorder {
     is_recording: Arc<AtomicBool>,
     current_file_path: Arc<Mutex<Option<String>>>,
-    vad_state: Arc<Mutex<VadState>>,
-    recording_start_ms: Arc<Mutex<Option<u64>>>,
+    stop_sender: Mutex<Option<mpsc::Sender<()>>>,
+    done_receiver: Mutex<Option<mpsc::Receiver<Result<()>>>>,
 }
 
 impl AudioRecorder {
@@ -39,29 +18,9 @@ impl AudioRecorder {
         Self {
             is_recording: Arc::new(AtomicBool::new(false)),
             current_file_path: Arc::new(Mutex::new(None)),
-            vad_state: Arc::new(Mutex::new(VadState::new())),
-            recording_start_ms: Arc::new(Mutex::new(None)),
+            stop_sender: Mutex::new(None),
+            done_receiver: Mutex::new(None),
         }
-    }
-
-    fn detect_voice(samples: &[i16]) -> bool {
-        if samples.is_empty() {
-            return false;
-        }
-        let sum: f32 = samples
-            .iter()
-            .map(|&s| {
-                let v = s as f32 / 32768.0;
-                v * v
-            })
-            .sum();
-        let energy = (sum / samples.len() as f32).sqrt();
-        let db = if energy > 0.0 {
-            20.0 * energy.log10()
-        } else {
-            -100.0
-        };
-        db > VAD_THRESHOLD_DB
     }
 
     pub fn start_recording(&self) -> Result<String> {
@@ -69,149 +28,136 @@ impl AudioRecorder {
             return Err(anyhow!("Recording already in progress"));
         }
 
-        let host = cpal::default_host();
-        let device = host
-            .default_input_device()
-            .ok_or_else(|| anyhow!("No input device available"))?;
-
-        let config = device
-            .default_input_config()
-            .map_err(|e| anyhow!("Failed to get input config: {}", e))?;
-
-        let spec = WavSpec {
-            channels: CHANNELS,
-            sample_rate: SAMPLE_RATE,
-            bits_per_sample: 16,
-            sample_format: SampleFormat::Int,
-        };
-
-        let temp_dir = std::env::temp_dir();
-        let file_name = format!("recording_{}.wav", uuid::Uuid::new_v4());
-        let file_path = temp_dir.join(&file_name);
-        let file_path_str = file_path.to_string_lossy().to_string();
-
-        let mut wav_writer = WavWriter::create(&file_path, spec)
-            .map_err(|e| anyhow!("Failed to create WAV file: {}", e))?;
+        let (stop_tx, stop_rx) = mpsc::channel::<()>();
+        let (done_tx, done_rx) = mpsc::channel::<Result<()>>();
+        let (ready_tx, ready_rx) = mpsc::channel::<Result<String>>();
 
         let is_recording = Arc::clone(&self.is_recording);
-        let vad_state = Arc::clone(&self.vad_state);
-        let recording_start_ms = Arc::clone(&self.recording_start_ms);
-        let writer_arc = Arc::new(Mutex::new(wav_writer));
 
-        let callback_err = |err| eprintln!("Audio stream error: {}", err);
+        // Generate the output path upfront so we can return it immediately.
+        let file_name = format!("recording_{}.wav", uuid::Uuid::new_v4());
+        let file_path = std::env::temp_dir().join(&file_name);
+        let file_path_str = file_path.to_string_lossy().to_string();
+        let file_path_for_thread = file_path.clone();
 
-        match config.sample_format() {
-            cpal::SampleFormat::I16 => {
-                let wav = Arc::clone(&writer_arc);
-                let stream = device.build_input_stream(
-                    &config.into(),
-                    move |data: &[i16], _: &cpal::InputCallbackInfo| {
-                        let has_voice = AudioRecorder::detect_voice(data);
+        std::thread::spawn(move || {
+            let host = cpal::default_host();
+            let device = match host.default_input_device() {
+                Some(d) => d,
+                None => {
+                    ready_tx.send(Err(anyhow!("No input device available"))).ok();
+                    return;
+                }
+            };
 
-                        if let (Ok(mut vad), Ok(mut rec_start)) =
-                            (vad_state.try_lock(), recording_start_ms.try_lock())
-                        {
-                            if has_voice && !vad.speech_detected {
-                                if rec_start.is_none() {
-                                    *rec_start = Some(0);
-                                }
-                                if vad.speech_start_ms.is_none() {
-                                    vad.speech_start_ms = Some(0);
-                                }
-                            }
+            let config = match device.default_input_config() {
+                Ok(c) => c,
+                Err(e) => {
+                    ready_tx
+                        .send(Err(anyhow!("Failed to get input config: {}", e)))
+                        .ok();
+                    return;
+                }
+            };
 
-                            if has_voice {
-                                vad.speech_detected = true;
-                                vad.silence_start_ms = None;
-                            } else if vad.speech_start_ms.is_some()
-                                && vad.silence_start_ms.is_none()
-                            {
-                                vad.silence_start_ms = Some(0);
-                            }
+            let channels = config.channels() as usize;
+            let sample_rate = config.sample_rate().0;
+            eprintln!(
+                "[audio] device config: {} channels @ {} Hz, format {:?}",
+                channels,
+                sample_rate,
+                config.sample_format()
+            );
 
-                            if vad.speech_detected {
-                                if let Some(silence_start) = vad.silence_start_ms {
-                                    if silence_start >= SILENCE_REQUIRED_MS {
-                                        is_recording.store(false, Ordering::SeqCst);
+            // Collect mono f32 samples during recording; WAV is written after
+            // stop so we can resample the whole buffer at once.
+            let sample_buf: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
+            let callback_err = |err| eprintln!("[audio] stream error: {}", err);
+
+            let flag = Arc::clone(&is_recording);
+            let buf = Arc::clone(&sample_buf);
+
+            let stream_result = match config.sample_format() {
+                cpal::SampleFormat::I16 => {
+                    device.build_input_stream(
+                        &config.into(),
+                        move |data: &[i16], _: &cpal::InputCallbackInfo| {
+                            if flag.load(Ordering::SeqCst) {
+                                if let Ok(mut b) = buf.try_lock() {
+                                    // Keep only first channel (mono downmix)
+                                    for chunk in data.chunks(channels) {
+                                        b.push(chunk[0] as f32 / 32768.0);
                                     }
                                 }
                             }
-                        }
-
-                        if is_recording.load(Ordering::SeqCst) {
-                            if let Ok(mut guard) = wav.try_lock() {
-                                for &sample in data {
-                                    let _ = guard.write_sample(sample);
-                                }
-                            }
-                        }
-                    },
-                    callback_err,
-                    None,
-                )?;
-                stream
-                    .play()
-                    .map_err(|e| anyhow!("Failed to start stream: {}", e))?;
-            }
-            cpal::SampleFormat::F32 => {
-                let wav = Arc::clone(&writer_arc);
-                let stream = device.build_input_stream(
-                    &config.into(),
-                    move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                        let samples: Vec<i16> =
-                            data.iter().map(|&s| (s * 32768.0) as i16).collect();
-                        let has_voice = AudioRecorder::detect_voice(&samples);
-
-                        if let (Ok(mut vad), Ok(mut rec_start)) =
-                            (vad_state.try_lock(), recording_start_ms.try_lock())
-                        {
-                            if has_voice && !vad.speech_detected {
-                                if rec_start.is_none() {
-                                    *rec_start = Some(0);
-                                }
-                                if vad.speech_start_ms.is_none() {
-                                    vad.speech_start_ms = Some(0);
-                                }
-                            }
-
-                            if has_voice {
-                                vad.speech_detected = true;
-                                vad.silence_start_ms = None;
-                            } else if vad.speech_start_ms.is_some()
-                                && vad.silence_start_ms.is_none()
-                            {
-                                vad.silence_start_ms = Some(0);
-                            }
-
-                            if vad.speech_detected {
-                                if let Some(silence_start) = vad.silence_start_ms {
-                                    if silence_start >= SILENCE_REQUIRED_MS {
-                                        is_recording.store(false, Ordering::SeqCst);
+                        },
+                        callback_err,
+                        None,
+                    )
+                }
+                cpal::SampleFormat::F32 => {
+                    device.build_input_stream(
+                        &config.into(),
+                        move |data: &[f32], _: &cpal::InputCallbackInfo| {
+                            if flag.load(Ordering::SeqCst) {
+                                if let Ok(mut b) = buf.try_lock() {
+                                    for chunk in data.chunks(channels) {
+                                        b.push(chunk[0]);
                                     }
                                 }
                             }
-                        }
+                        },
+                        callback_err,
+                        None,
+                    )
+                }
+                fmt => {
+                    ready_tx
+                        .send(Err(anyhow!("Unsupported sample format: {:?}", fmt)))
+                        .ok();
+                    return;
+                }
+            };
 
-                        if is_recording.load(Ordering::SeqCst) {
-                            if let Ok(mut guard) = wav.try_lock() {
-                                for &sample in &samples {
-                                    let _ = guard.write_sample(sample);
-                                }
-                            }
-                        }
-                    },
-                    callback_err,
-                    None,
-                )?;
-                stream
-                    .play()
-                    .map_err(|e| anyhow!("Failed to start stream: {}", e))?;
+            let stream = match stream_result {
+                Ok(s) => s,
+                Err(e) => {
+                    ready_tx
+                        .send(Err(anyhow!("Failed to build stream: {}", e)))
+                        .ok();
+                    return;
+                }
+            };
+
+            if let Err(e) = stream.play() {
+                ready_tx
+                    .send(Err(anyhow!("Failed to start stream: {}", e)))
+                    .ok();
+                return;
             }
-            _ => return Err(anyhow!("Unsupported sample format")),
-        }
 
-        self.is_recording.store(true, Ordering::SeqCst);
-        *self.current_file_path.lock().unwrap() = Some(file_path_str.clone());
+            is_recording.store(true, Ordering::SeqCst);
+            ready_tx.send(Ok(file_path_for_thread.to_string_lossy().to_string())).ok();
+
+            stop_rx.recv().ok();
+            is_recording.store(false, Ordering::SeqCst);
+            drop(stream);
+
+            // Resample entire buffer to 16 kHz and write WAV.
+            let samples = std::mem::take(&mut *sample_buf.lock().unwrap());
+            let resampled = resample_to_16k(&samples, sample_rate);
+
+            let result = write_wav_16k(&file_path_for_thread, &resampled);
+            done_tx.send(result).ok();
+        });
+
+        let file_path_str_from_thread = ready_rx
+            .recv()
+            .map_err(|_| anyhow!("Recording thread exited before starting"))??;
+
+        *self.current_file_path.lock().unwrap() = Some(file_path_str_from_thread.clone());
+        *self.stop_sender.lock().unwrap() = Some(stop_tx);
+        *self.done_receiver.lock().unwrap() = Some(done_rx);
 
         Ok(file_path_str)
     }
@@ -221,12 +167,22 @@ impl AudioRecorder {
             return Ok(None);
         }
 
-        self.is_recording.store(false, Ordering::SeqCst);
         let file_path = self.current_file_path.lock().unwrap().take();
 
-        *self.vad_state.lock().unwrap() = VadState::new();
-        *self.recording_start_ms.lock().unwrap() = None;
+        if let Some(tx) = self.stop_sender.lock().unwrap().take() {
+            tx.send(()).ok();
+        }
 
+        // Wait for resampling + WAV write to finish before giving path to caller.
+        if let Some(rx) = self.done_receiver.lock().unwrap().take() {
+            match rx.recv_timeout(std::time::Duration::from_secs(10)) {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => eprintln!("[audio] WAV write error: {}", e),
+                Err(_) => eprintln!("[audio] warning: recording thread did not signal completion"),
+            }
+        }
+
+        eprintln!("[audio] recording stopped, file: {:?}", file_path);
         Ok(file_path)
     }
 
@@ -239,4 +195,44 @@ impl Default for AudioRecorder {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Linear interpolation resample to TARGET_SAMPLE_RATE.
+/// For speech (content mostly below 4 kHz) this is sufficient quality.
+fn resample_to_16k(samples: &[f32], from_rate: u32) -> Vec<f32> {
+    if from_rate == TARGET_SAMPLE_RATE {
+        return samples.to_vec();
+    }
+    let ratio = from_rate as f64 / TARGET_SAMPLE_RATE as f64;
+    let out_len = (samples.len() as f64 / ratio) as usize;
+    (0..out_len)
+        .map(|i| {
+            let pos = i as f64 * ratio;
+            let idx = pos as usize;
+            let frac = (pos - idx as f64) as f32;
+            let s0 = samples.get(idx).copied().unwrap_or(0.0);
+            let s1 = samples.get(idx + 1).copied().unwrap_or(s0);
+            s0 + (s1 - s0) * frac
+        })
+        .collect()
+}
+
+fn write_wav_16k(path: &std::path::Path, samples: &[f32]) -> Result<()> {
+    let spec = WavSpec {
+        channels: 1,
+        sample_rate: TARGET_SAMPLE_RATE,
+        bits_per_sample: 16,
+        sample_format: SampleFormat::Int,
+    };
+    let mut writer =
+        WavWriter::create(path, spec).map_err(|e| anyhow!("Failed to create WAV: {}", e))?;
+    for &s in samples {
+        let sample = (s * 32767.0).clamp(-32768.0, 32767.0) as i16;
+        writer
+            .write_sample(sample)
+            .map_err(|e| anyhow!("WAV write error: {}", e))?;
+    }
+    writer
+        .finalize()
+        .map_err(|e| anyhow!("WAV finalize error: {}", e))
 }
