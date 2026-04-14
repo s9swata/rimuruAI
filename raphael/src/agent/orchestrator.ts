@@ -33,17 +33,28 @@ export async function orchestrate(
   persona: PersonaConfig,
   profileContext: string,
   registry: ToolRegistry,
+  toolResult?: string,  // ← NEW: result from previous tool call in the chain
 ): Promise<OrchestratorResult> {
   console.log("[Orchestrator] Starting orchestration...");
 
   const toolList = registry.toPromptString();
-  const systemPrompt = buildSystemPrompt("orchestrator", persona, profileContext, toolList);
+  const toolListWithContext = toolResult
+    ? `${toolList}\n\n## Active tool result\n${toolResult.slice(0, 500)}\nDecide if another tool is needed or return tool: null to synthesize.`
+    : toolList;
+  const systemPrompt = buildSystemPrompt("orchestrator", persona, profileContext, toolListWithContext);
 
   const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
     { role: "system", content: systemPrompt },
     ...history.map((h) => ({ role: h.role as "user" | "assistant", content: h.content })),
     { role: "user", content: userMessage },
   ];
+
+  if (toolResult) {
+    messages.push({
+      role: "user",
+      content: `Previous tool result:\n${toolResult}\n\nBased on this result, what should I do next? Return JSON routing decision.`,
+    });
+  }
 
   try {
     console.log("[Orchestrator] Calling generateText via Groq (with retry)...");
