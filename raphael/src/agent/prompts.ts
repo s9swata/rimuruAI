@@ -5,9 +5,9 @@ import IDENTITY from "./bootstrap/IDENTITY.md?raw";
 import TOOLS_GUIDE from "./bootstrap/TOOLS.md?raw";
 
 export const MODELS = {
-  orchestrator: "openai/gpt-oss-120b",      // Groq — structured JSON orchestration
-  fast:         "llama-3.3-70b-versatile",  // Groq — fast streaming responses
-  powerful:     "llama-3.3-70b-versatile",  // Groq — long context / complex tasks
+  orchestrator: "qwen-qwen3-32b",                    // Groq — structured JSON routing
+  fast:         "meta-llama/llama-3.1-8b-instant",   // Groq — low latency for simple queries
+  powerful:     "llama-3.3-70b-versatile",           // Groq — complex reasoning / synthesis
 } as const;
 
 export type ModelTier = keyof typeof MODELS;
