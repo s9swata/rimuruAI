@@ -217,12 +217,13 @@ loadConfig()
 
       for (let iter = 0; iter < MAX_TOOL_ITERS && lastPlan.tool; iter++) {
         const plan = lastPlan;
+        const planTool = plan.tool!;
         const cardId = crypto.randomUUID();
-        chatDispatch({ type: "ADD_TOOL", card: { id: cardId, tool: plan.tool, status: "running" } });
+        chatDispatch({ type: "ADD_TOOL", card: { id: cardId, tool: planTool, status: "running" } });
 
         let iterContext = "";
 
-        if (plan.tool === "gmail.draftEmail") {
+        if (planTool === "gmail.draftEmail") {
           const draft = plan.params as unknown as { to?: string; subject?: string; body?: string };
           chatDispatch({ type: "ADD_EMAIL", draft: { id: crypto.randomUUID(), to: draft.to ?? "", subject: draft.subject ?? "", body: draft.body ?? "" } });
           chatDispatch({ type: "UPDATE_TOOL", id: cardId, status: "done", result: "Draft ready for review" });
@@ -230,9 +231,9 @@ loadConfig()
           toolContext = toolContext ? toolContext + "\n\n" + iterContext : iterContext;
           break;
         } else {
-          const needsApproval = requiresApprovalCheck(plan.tool, config);
+          const needsApproval = requiresApprovalCheck(planTool, config);
           if (needsApproval) {
-            const toolName = plan.tool as string;
+            const toolName = planTool;
             const ok = await new Promise<boolean>((resolve) => {
               approvalResolveRef.current = resolve;
               setPendingApproval({ cardId, tool: toolName, params: (plan.params ?? {}) as Record<string, unknown> });
@@ -244,11 +245,11 @@ loadConfig()
             }
           }
           const registry = registryRef.current;
-          const result = await dispatch(plan.tool, plan.params ?? {}, registry);
+          const result = await dispatch(planTool, plan.params ?? {}, registry);
           if (result.success) {
             // For shell.run with empty output, give the model an explicit signal
             // instead of an empty string that causes hallucination from history.
-            if (plan.tool === "shell.run") {
+            if (planTool === "shell.run") {
               const d = result.data as { exitCode?: number; output?: string };
               const out = d.output?.trim() ?? "";
               iterContext = out.length > 0
@@ -258,12 +259,12 @@ loadConfig()
               iterContext = JSON.stringify(result.data, null, 2).slice(0, 1000);
             }
             chatDispatch({ type: "UPDATE_TOOL", id: cardId, status: "done", result: iterContext.slice(0, 120) });
-            if (plan.tool === "memory.saveProfile") {
+            if (planTool === "memory.saveProfile") {
               invoke<string>("load_profile").then(setProfileContent).catch(console.error);
             }
           } else {
             chatDispatch({ type: "UPDATE_TOOL", id: cardId, status: "error", result: result.error });
-            iterContext = `Tool error: ${result.error}`;
+            iterContext = `TOOL_FAILED: ${planTool}\nError: ${result.error}\nDo not retry the same tool with the same params. Either try a different approach or set tool: null and explain the error to the user.`;
           }
         }
 

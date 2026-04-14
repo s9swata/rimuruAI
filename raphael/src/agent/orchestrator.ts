@@ -50,9 +50,12 @@ export async function orchestrate(
   ];
 
   if (toolResult) {
+    const toolResultLabel = toolResult.startsWith("TOOL_FAILED:")
+      ? "[PREVIOUS TOOL FAILED — do not repeat same call]"
+      : "Previous tool result:";
     messages.push({
       role: "user",
-      content: `Previous tool result:\n${toolResult}\n\nBased on this result, what should I do next? Return JSON routing decision.`,
+      content: `${toolResultLabel}\n${toolResult}\n\nBased on this result, what should I do next? Return JSON routing decision.`,
     });
   }
 
