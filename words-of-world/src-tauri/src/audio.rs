@@ -1,8 +1,16 @@
 use anyhow::{anyhow, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use hound::{SampleFormat, WavSpec, WavWriter};
+use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
+use std::time::Duration;
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct AudioDevice {
+    pub name: String,
+    pub is_default: bool,
+}
 
 const TARGET_SAMPLE_RATE: u32 = 16_000;
 
@@ -45,7 +53,9 @@ impl AudioRecorder {
             let device = match host.default_input_device() {
                 Some(d) => d,
                 None => {
-                    ready_tx.send(Err(anyhow!("No input device available"))).ok();
+                    ready_tx
+                        .send(Err(anyhow!("No input device available")))
+                        .ok();
                     return;
                 }
             };
@@ -95,22 +105,20 @@ impl AudioRecorder {
                         None,
                     )
                 }
-                cpal::SampleFormat::F32 => {
-                    device.build_input_stream(
-                        &config.into(),
-                        move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                            if flag.load(Ordering::SeqCst) {
-                                if let Ok(mut b) = buf.try_lock() {
-                                    for chunk in data.chunks(channels) {
-                                        b.push(chunk[0]);
-                                    }
+                cpal::SampleFormat::F32 => device.build_input_stream(
+                    &config.into(),
+                    move |data: &[f32], _: &cpal::InputCallbackInfo| {
+                        if flag.load(Ordering::SeqCst) {
+                            if let Ok(mut b) = buf.try_lock() {
+                                for chunk in data.chunks(channels) {
+                                    b.push(chunk[0]);
                                 }
                             }
-                        },
-                        callback_err,
-                        None,
-                    )
-                }
+                        }
+                    },
+                    callback_err,
+                    None,
+                ),
                 fmt => {
                     ready_tx
                         .send(Err(anyhow!("Unsupported sample format: {:?}", fmt)))
@@ -137,7 +145,9 @@ impl AudioRecorder {
             }
 
             is_recording.store(true, Ordering::SeqCst);
-            ready_tx.send(Ok(file_path_for_thread.to_string_lossy().to_string())).ok();
+            ready_tx
+                .send(Ok(file_path_for_thread.to_string_lossy().to_string()))
+                .ok();
 
             stop_rx.recv().ok();
             is_recording.store(false, Ordering::SeqCst);
@@ -235,4 +245,126 @@ fn write_wav_16k(path: &std::path::Path, samples: &[f32]) -> Result<()> {
     writer
         .finalize()
         .map_err(|e| anyhow!("WAV finalize error: {}", e))
+}
+
+pub fn list_input_devices() -> Result<Vec<AudioDevice>> {
+    let host = cpal::default_host();
+    let devices = host.input_devices()?;
+
+    let default_device = host.default_input_device();
+    let default_name = default_device
+        .and_then(|d| d.name().ok())
+        .unwrap_or_default();
+
+    let mut result = Vec::new();
+    for device in devices {
+        if let Ok(name) = device.name() {
+            let is_default = name == default_name;
+            result.push(AudioDevice { name, is_default });
+        }
+    }
+
+    if result.is_empty() {
+        return Err(anyhow!("No input devices found"));
+    }
+
+    Ok(result)
+}
+
+pub fn test_microphone(device_name: Option<&str>) -> Result<bool> {
+    let host = cpal::default_host();
+
+    let device = if let Some(name) = device_name {
+        match host
+            .input_devices()?
+            .find(|d| d.name().map(|n| n == name).unwrap_or(false))
+        {
+            Some(d) => d,
+            None => return Err(anyhow!("Device '{}' not found", name)),
+        }
+    } else {
+        match host.default_input_device() {
+            Some(d) => d,
+            None => return Err(anyhow!("No default input device")),
+        }
+    };
+
+    let config = device
+        .default_input_config()
+        .map_err(|e| anyhow!("Failed to get input config: {}", e))?;
+
+    let channels = config.channels() as usize;
+    let sample_buf: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
+    let is_recording = Arc::new(AtomicBool::new(true));
+    let flag = Arc::clone(&is_recording);
+    let buf = Arc::clone(&sample_buf);
+
+    let stream = match config.sample_format() {
+        cpal::SampleFormat::I16 => device.build_input_stream(
+            &config.into(),
+            move |data: &[i16], _: &cpal::InputCallbackInfo| {
+                if flag.load(Ordering::SeqCst) {
+                    if let Ok(mut b) = buf.try_lock() {
+                        for chunk in data.chunks(channels) {
+                            b.push(chunk[0] as f32 / 32768.0);
+                        }
+                    }
+                }
+            },
+            |err| eprintln!("[mic-test] stream error: {}", err),
+            None,
+        ),
+        cpal::SampleFormat::F32 => device.build_input_stream(
+            &config.into(),
+            move |data: &[f32], _: &cpal::InputCallbackInfo| {
+                if flag.load(Ordering::SeqCst) {
+                    if let Ok(mut b) = buf.try_lock() {
+                        for chunk in data.chunks(channels) {
+                            b.push(chunk[0]);
+                        }
+                    }
+                }
+            },
+            |err| eprintln!("[mic-test] stream error: {}", err),
+            None,
+        ),
+        fmt => return Err(anyhow!("Unsupported sample format: {:?}", fmt)),
+    }
+    .map_err(|e| anyhow!("Failed to build stream: {}", e))?;
+
+    stream
+        .play()
+        .map_err(|e| anyhow!("Failed to start stream: {}", e))?;
+
+    std::thread::sleep(Duration::from_secs(1));
+    is_recording.store(false, Ordering::SeqCst);
+    drop(stream);
+
+    let lock_result = sample_buf.lock();
+    if let Ok(buf) = lock_result {
+        let samples = buf.len();
+        if samples > 0 {
+            let avg_amplitude: f32 = buf.iter().map(|s| s.abs()).sum::<f32>() / samples as f32;
+            eprintln!(
+                "[mic-test] captured {} samples, avg amplitude: {:.4}",
+                samples, avg_amplitude
+            );
+            return Ok(avg_amplitude > 0.001);
+        }
+    }
+    Ok(false)
+}
+
+pub fn check_microphone_status() -> Result<bool> {
+    let host = cpal::default_host();
+
+    let device = match host.default_input_device() {
+        Some(d) => d,
+        None => return Ok(false),
+    };
+
+    match device.default_input_config() {
+        Ok(_) => Ok(true),
+        Err(_) => Ok(false),
+    }
 }

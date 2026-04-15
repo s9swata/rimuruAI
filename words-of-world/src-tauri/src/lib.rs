@@ -39,6 +39,11 @@ fn set_api_key(key: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn has_api_key() -> Result<bool, String> {
+    Ok(settings::get_api_key().map_err(|e| e.to_string())?.is_some())
+}
+
+#[tauri::command]
 fn get_settings() -> Result<AppSettings, String> {
     settings::get_settings().map_err(|e| e.to_string())
 }
@@ -91,6 +96,21 @@ fn check_recording_status(state: State<AppState>) -> Result<bool, String> {
     let state = state.inner();
     let recorder = state.recorder.lock().map_err(|e| e.to_string())?;
     Ok(recorder.check_recording_status())
+}
+
+#[tauri::command]
+fn list_microphones() -> Result<Vec<audio::AudioDevice>, String> {
+    audio::list_input_devices().map_err(|e: anyhow::Error| e.to_string())
+}
+
+#[tauri::command]
+fn test_microphone(device_name: Option<String>) -> Result<bool, String> {
+    audio::test_microphone(device_name.as_deref()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn check_microphone_status() -> Result<bool, String> {
+    audio::check_microphone_status().map_err(|e| e.to_string())
 }
 
 fn setup_tray(app: &tauri::App) -> Result<MenuItem<tauri::Wry>, Box<dyn std::error::Error>> {
@@ -195,12 +215,16 @@ pub fn run() {
             injector::check_accessibility_permissions,
             get_api_key,
             set_api_key,
+            has_api_key,
             get_settings,
             save_settings,
             transcribe_audio,
             start_recording,
             stop_recording,
             check_recording_status,
+            list_microphones,
+            test_microphone,
+            check_microphone_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

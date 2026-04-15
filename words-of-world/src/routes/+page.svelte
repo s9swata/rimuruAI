@@ -1,10 +1,15 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-import StatusIndicator from '$lib/components/StatusIndicator.svelte';
+  import StatusIndicator from '$lib/components/StatusIndicator.svelte';
   import { recordingState, setRecordingState, loadSettings, saveSettings, defaultSettings, type AppSettings, type RecordingState } from '$lib/settings';
   import { invoke } from '@tauri-apps/api/core';
   import { listen, type UnlistenFn } from '@tauri-apps/api/event';
   import { register, unregister } from '@tauri-apps/plugin-global-shortcut';
+
+  interface AudioDevice {
+    name: string;
+    is_default: boolean;
+  }
 
   let settings: AppSettings = { ...defaultSettings };
   let currentAudioPath: string | null = null;
@@ -13,6 +18,11 @@ import StatusIndicator from '$lib/components/StatusIndicator.svelte';
   let unlistenOpenPrefs: UnlistenFn;
   let isRecordingHotkey = false;
   let recordedKeys: string[] = [];
+  let hasApiKey = false;
+  let audioDevices: AudioDevice[] = [];
+  let selectedDevice = '';
+  let micTestResult: 'idle' | 'testing' | 'success' | 'failed' = 'idle';
+  let micStatus = 'checking';
 
   onMount(async () => {
     settings = await loadSettings();
@@ -21,12 +31,42 @@ import StatusIndicator from '$lib/components/StatusIndicator.svelte';
       await registerHotkey(settings.hotkey);
     }
 
+    hasApiKey = await invoke<boolean>('has_api_key').catch(() => false);
+
+    await loadAudioDevices();
+    micStatus = await invoke<boolean>('check_microphone_status')
+      .then(ok => ok ? 'ready' : 'error')
+      .catch(() => 'error');
+
     unlistenTrayRecord = await listen('tray-record', () => {
       toggleRecording();
     });
 
     unlistenOpenPrefs = await listen('open-preferences', () => {});
   });
+
+  async function loadAudioDevices() {
+    try {
+      audioDevices = await invoke<AudioDevice[]>('list_microphones');
+      const defaultDevice = audioDevices.find(d => d.is_default);
+      selectedDevice = defaultDevice?.name || audioDevices[0]?.name || '';
+    } catch (e) {
+      console.error('Failed to load audio devices:', e);
+    }
+  }
+
+  async function testMicrophone() {
+    micTestResult = 'testing';
+    try {
+      const result = await invoke<boolean>('test_microphone', { 
+        deviceName: selectedDevice || null 
+      });
+      micTestResult = result ? 'success' : 'failed';
+    } catch (e) {
+      console.error('Mic test failed:', e);
+      micTestResult = 'failed';
+    }
+  }
 
   onDestroy(async () => {
     unlistenTrayRecord?.();
@@ -188,7 +228,12 @@ import StatusIndicator from '$lib/components/StatusIndicator.svelte';
       
       <div class="form">
         <div class="field">
-          <label for="groq-api-key">Groq API Key</label>
+          <div class="api-key-header">
+            <label for="groq-api-key">Groq API Key</label>
+            <span class="api-key-status" class:configured={hasApiKey}>
+              {hasApiKey ? '✓ Configured' : 'Not set'}
+            </span>
+          </div>
           <input
             id="groq-api-key"
             type="password"
@@ -244,6 +289,47 @@ import StatusIndicator from '$lib/components/StatusIndicator.svelte';
           </button>
         </div>
       </div>
+    </section>
+
+    <section class="mic-section">
+      <h2 class="section-title">Microphone</h2>
+      
+      <div class="mic-status-row">
+        <span class="mic-status-indicator" class:ready={micStatus === 'ready'} class:error={micStatus === 'error'}></span>
+        <span class="mic-status-text">
+          {micStatus === 'ready' ? 'Microphone ready' : micStatus === 'checking' ? 'Checking...' : 'No microphone detected'}
+        </span>
+      </div>
+
+      <div class="field">
+        <label for="mic-select">Input Device</label>
+        <select id="mic-select" bind:value={selectedDevice}>
+          {#each audioDevices as device}
+            <option value={device.name}>
+              {device.name} {device.is_default ? '(Default)' : ''}
+            </option>
+          {/each}
+        </select>
+      </div>
+
+      <button 
+        class="test-mic-btn"
+        class:testing={micTestResult === 'testing'}
+        class:success={micTestResult === 'success'}
+        class:failed={micTestResult === 'failed'}
+        on:click={testMicrophone}
+        disabled={micTestResult === 'testing' || audioDevices.length === 0}
+      >
+        {#if micTestResult === 'testing'}
+          Testing...
+        {:else if micTestResult === 'success'}
+          ✓ Working
+        {:else if micTestResult === 'failed'}
+          ✕ Not working
+        {:else}
+          Test Microphone
+        {/if}
+      </button>
     </section>
   </div>
 
@@ -649,5 +735,122 @@ import StatusIndicator from '$lib/components/StatusIndicator.svelte';
       opacity: 1;
       transform: translateX(-50%) translateY(0);
     }
+  }
+
+  .api-key-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .api-key-status {
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: rgba(239, 68, 68, 0.15);
+    color: #f87171;
+  }
+
+  .api-key-status.configured {
+    background: rgba(34, 197, 94, 0.15);
+    color: #4ade80;
+  }
+
+  .mic-section {
+    padding: 24px;
+    background: linear-gradient(135deg, #1c1c1f 0%, #2c2c2f 100%);
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .mic-status-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 16px;
+    padding: 12px 16px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 10px;
+  }
+
+  .mic-status-indicator {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #71717a;
+  }
+
+  .mic-status-indicator.ready {
+    background: #22c55e;
+    box-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
+  }
+
+  .mic-status-indicator.error {
+    background: #ef4444;
+    box-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
+  }
+
+  .mic-status-text {
+    font-size: 14px;
+    color: #a1a1aa;
+  }
+
+  .mic-section select {
+    width: 100%;
+    padding: 12px 14px;
+    font-size: 14px;
+    background: #0a0a0c;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    color: #f5f5f7;
+    cursor: pointer;
+  }
+
+  .mic-section select:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+  }
+
+  .test-mic-btn {
+    width: 100%;
+    margin-top: 12px;
+    padding: 12px 20px;
+    font-size: 14px;
+    font-weight: 500;
+    background: #0a0a0c;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    color: #e4e4e7;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .test-mic-btn:hover:not(:disabled) {
+    border-color: #3b82f6;
+    color: #3b82f6;
+  }
+
+  .test-mic-btn.testing {
+    background: rgba(59, 130, 246, 0.1);
+    border-color: #3b82f6;
+    color: #3b82f6;
+  }
+
+  .test-mic-btn.success {
+    background: rgba(34, 197, 94, 0.1);
+    border-color: #22c55e;
+    color: #22c55e;
+  }
+
+  .test-mic-btn.failed {
+    background: rgba(239, 68, 68, 0.1);
+    border-color: #ef4444;
+    color: #ef4444;
+  }
+
+  .test-mic-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 </style>
