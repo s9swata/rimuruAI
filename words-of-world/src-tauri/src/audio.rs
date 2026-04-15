@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
+use tauri::Emitter;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct AudioDevice {
@@ -367,4 +368,107 @@ pub fn check_microphone_status() -> Result<bool> {
         Ok(_) => Ok(true),
         Err(_) => Ok(false),
     }
+}
+
+static MIC_TEST_RUNNING: AtomicBool = AtomicBool::new(false);
+
+pub async fn start_mic_test(app: &tauri::AppHandle, device_name: Option<&str>) -> Result<()> {
+    if MIC_TEST_RUNNING.load(Ordering::SeqCst) {
+        return Ok(());
+    }
+
+    let host = cpal::default_host();
+    
+    let device = if let Some(name) = device_name {
+        match host.input_devices()?.find(|d| d.name().map(|n| n == name).unwrap_or(false)) {
+            Some(d) => d,
+            None => return Err(anyhow!("Device '{}' not found", name)),
+        }
+    } else {
+        match host.default_input_device() {
+            Some(d) => d,
+            None => return Err(anyhow!("No default input device")),
+        }
+    };
+
+    let config = device.default_input_config()
+        .map_err(|e| anyhow!("Failed to get input config: {}", e))?;
+
+    let channels = config.channels() as usize;
+    let sample_buf: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
+    let is_recording = Arc::new(AtomicBool::new(true));
+    let flag = Arc::clone(&is_recording);
+    let buf = Arc::clone(&sample_buf);
+    let app_handle = app.clone();
+
+    let stream = match config.sample_format() {
+        cpal::SampleFormat::I16 => {
+            device.build_input_stream(
+                &config.into(),
+                move |data: &[i16], _: &cpal::InputCallbackInfo| {
+                    if flag.load(Ordering::SeqCst) {
+                        if let Ok(mut b) = buf.try_lock() {
+                            for chunk in data.chunks(channels) {
+                                b.push(chunk[0] as f32 / 32768.0);
+                            }
+                        }
+                    }
+                },
+                |err| eprintln!("[mic-test] stream error: {}", err),
+                None,
+            )
+        }
+        cpal::SampleFormat::F32 => {
+            device.build_input_stream(
+                &config.into(),
+                move |data: &[f32], _: &cpal::InputCallbackInfo| {
+                    if flag.load(Ordering::SeqCst) {
+                        if let Ok(mut b) = buf.try_lock() {
+                            for chunk in data.chunks(channels) {
+                                b.push(chunk[0]);
+                            }
+                        }
+                    }
+                },
+                |err| eprintln!("[mic-test] stream error: {}", err),
+                None,
+            )
+        }
+        fmt => return Err(anyhow!("Unsupported sample format: {:?}", fmt)),
+    }.map_err(|e| anyhow!("Failed to build stream: {}", e))?;
+
+    stream.play().map_err(|e| anyhow!("Failed to start stream: {}", e))?;
+    MIC_TEST_RUNNING.store(true, Ordering::SeqCst);
+
+    let flag_clone = Arc::clone(&is_recording);
+    let buf_clone = Arc::clone(&sample_buf);
+
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(Duration::from_millis(50));
+            
+            if !flag_clone.load(Ordering::SeqCst) {
+                break;
+            }
+
+            let lock_result = buf_clone.lock();
+            if let Ok(buf) = lock_result {
+                let len = buf.len();
+                if len > 0 {
+                    let samples: Vec<f32> = buf.iter().copied().collect();
+                    let avg = samples.iter().map(|s| s.abs()).sum::<f32>() / len as f32;
+                    let normalized = (avg * 10.0).clamp(0.0, 1.0);
+                    
+                    let _ = app_handle.emit("mic-amplitude", normalized);
+                }
+            }
+        }
+    });
+
+    Ok(())
+}
+
+pub fn stop_mic_test() -> Result<()> {
+    MIC_TEST_RUNNING.store(false, Ordering::SeqCst);
+    Ok(())
 }

@@ -113,6 +113,18 @@ fn check_microphone_status() -> Result<bool, String> {
     audio::check_microphone_status().map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+async fn start_mic_test(app: tauri::AppHandle, device_name: Option<String>) -> Result<(), String> {
+    audio::start_mic_test(&app, device_name.as_deref())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn stop_mic_test() -> Result<(), String> {
+    audio::stop_mic_test().map_err(|e| e.to_string())
+}
+
 fn setup_tray(app: &tauri::App) -> Result<MenuItem<tauri::Wry>, Box<dyn std::error::Error>> {
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let show = MenuItem::with_id(app, "show", "Show Window", true, None::<&str>)?;
@@ -225,6 +237,8 @@ pub fn run() {
             list_microphones,
             test_microphone,
             check_microphone_status,
+            start_mic_test,
+            stop_mic_test,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

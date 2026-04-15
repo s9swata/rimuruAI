@@ -21,8 +21,9 @@
   let hasApiKey = false;
   let audioDevices: AudioDevice[] = [];
   let selectedDevice = '';
-  let micTestResult: 'idle' | 'testing' | 'success' | 'failed' = 'idle';
-  let micStatus = 'checking';
+  let micTestActive = false;
+  let micAmplitude = 0;
+  let unlistenMicAmplitude: UnlistenFn;
 
   onMount(async () => {
     settings = await loadSettings();
@@ -34,15 +35,23 @@
     hasApiKey = await invoke<boolean>('has_api_key').catch(() => false);
 
     await loadAudioDevices();
-    micStatus = await invoke<boolean>('check_microphone_status')
-      .then(ok => ok ? 'ready' : 'error')
-      .catch(() => 'error');
 
     unlistenTrayRecord = await listen('tray-record', () => {
       toggleRecording();
     });
 
     unlistenOpenPrefs = await listen('open-preferences', () => {});
+
+    unlistenMicAmplitude = await listen<number>('mic-amplitude', (event) => {
+      micAmplitude = event.payload;
+    });
+  });
+
+  onDestroy(() => {
+    unlistenMicAmplitude?.();
+    if (micTestActive) {
+      invoke('stop_mic_test').catch(() => {});
+    }
   });
 
   async function loadAudioDevices() {
@@ -55,22 +64,34 @@
     }
   }
 
-  async function testMicrophone() {
-    micTestResult = 'testing';
+  async function startMicTest() {
+    micAmplitude = 0;
+    micTestActive = true;
     try {
-      const result = await invoke<boolean>('test_microphone', { 
-        deviceName: selectedDevice || null 
-      });
-      micTestResult = result ? 'success' : 'failed';
+      await invoke('start_mic_test', { deviceName: selectedDevice || null });
     } catch (e) {
-      console.error('Mic test failed:', e);
-      micTestResult = 'failed';
+      console.error('Failed to start mic test:', e);
+      micTestActive = false;
+    }
+  }
+
+  async function stopMicTest() {
+    micTestActive = false;
+    micAmplitude = 0;
+    try {
+      await invoke('stop_mic_test');
+    } catch (e) {
+      console.error('Failed to stop mic test:', e);
     }
   }
 
   onDestroy(async () => {
     unlistenTrayRecord?.();
     unlistenOpenPrefs?.();
+    unlistenMicAmplitude?.();
+    if (micTestActive) {
+      await invoke('stop_mic_test').catch(() => {});
+    }
     if (settings.hotkey) {
       await unregisterHotkey(settings.hotkey);
     }
@@ -149,6 +170,7 @@
     if (settings.hotkey) {
       recordedKeys = settings.hotkey.split('+');
     }
+    hasApiKey = await invoke<boolean>('has_api_key').catch(() => false);
   }
 
   function handleKeyDown(event: KeyboardEvent) {
@@ -194,11 +216,8 @@
 <main class="container">
   <div class="app-header">
     <h1 class="app-title">Words of World</h1>
-    <StatusIndicator />
-  </div>
-
-  <div class="app-content">
-    <section class="recorder-section">
+    <div class="header-controls">
+      <StatusIndicator />
       <button 
         class="record-btn" 
         on:click={toggleRecording} 
@@ -212,16 +231,18 @@
           <svg class="icon" viewBox="0 0 24 24" fill="currentColor">
             <rect x="6" y="6" width="12" height="12" rx="2"/>
           </svg>
-          <span>Stop</span>
         {:else}
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="6"/>
           </svg>
-          <span>Record</span>
         {/if}
       </button>
-      <p class="hotkey-hint">Press <kbd>{settings.hotkey || 'Alt+Space'}</kbd> to record</p>
-    </section>
+    </div>
+  </div>
+
+  <p class="hotkey-hint">Press <kbd>{settings.hotkey || 'Alt+Space'}</kbd> to record</p>
+
+  <div class="app-content">
 
     <section class="settings-section">
       <h2 class="section-title">Settings</h2>
@@ -293,17 +314,10 @@
 
     <section class="mic-section">
       <h2 class="section-title">Microphone</h2>
-      
-      <div class="mic-status-row">
-        <span class="mic-status-indicator" class:ready={micStatus === 'ready'} class:error={micStatus === 'error'}></span>
-        <span class="mic-status-text">
-          {micStatus === 'ready' ? 'Microphone ready' : micStatus === 'checking' ? 'Checking...' : 'No microphone detected'}
-        </span>
-      </div>
 
       <div class="field">
         <label for="mic-select">Input Device</label>
-        <select id="mic-select" bind:value={selectedDevice}>
+        <select id="mic-select" bind:value={selectedDevice} on:change={() => { if (micTestActive) { stopMicTest(); startMicTest(); } }}>
           {#each audioDevices as device}
             <option value={device.name}>
               {device.name} {device.is_default ? '(Default)' : ''}
@@ -312,24 +326,22 @@
         </select>
       </div>
 
-      <button 
-        class="test-mic-btn"
-        class:testing={micTestResult === 'testing'}
-        class:success={micTestResult === 'success'}
-        class:failed={micTestResult === 'failed'}
-        on:click={testMicrophone}
-        disabled={micTestResult === 'testing' || audioDevices.length === 0}
-      >
-        {#if micTestResult === 'testing'}
-          Testing...
-        {:else if micTestResult === 'success'}
-          ✓ Working
-        {:else if micTestResult === 'failed'}
-          ✕ Not working
-        {:else}
-          Test Microphone
-        {/if}
-      </button>
+      <div class="mic-visualizer" on:mousedown={startMicTest} on:mouseup={stopMicTest} on:mouseleave={stopMicTest}>
+        <div class="bars">
+          {#each Array(12) as _, i}
+            <div 
+              class="bar" 
+              style="height: {micTestActive ? Math.max(4, micAmplitude * 100 * (0.5 + Math.random() * 0.5)) : 4}%"
+              class:active={micAmplitude > 0.05}
+            ></div>
+          {/each}
+        </div>
+        <span class="mic-hint">{micTestActive ? 'Release to stop' : 'Hold to test'}</span>
+      </div>
+
+      {#if !micTestActive && micAmplitude === 0 && audioDevices.length > 0}
+        <span class="mic-error">No input detected - check your microphone</span>
+      {/if}
     </section>
   </div>
 
@@ -378,6 +390,58 @@
     -webkit-text-fill-color: transparent;
     background-clip: text;
     margin: 0;
+  }
+
+  .header-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .record-btn {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .record-btn.recording {
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  }
+
+  .record-btn.processing {
+    background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  }
+
+  .record-btn .icon {
+    width: 20px;
+    height: 20px;
+    color: #fff;
+  }
+
+  .hotkey-hint {
+    font-size: 13px;
+    color: #71717a;
+    margin-top: -16px;
+    text-align: center;
+  }
+
+  .hotkey-hint kbd {
+    display: inline-block;
+    padding: 2px 8px;
+    font-size: 12px;
+    font-family: 'SF Mono', Monaco, monospace;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    color: #a1a1aa;
   }
 
   .app-content {
@@ -810,6 +874,58 @@
     outline: none;
     border-color: #3b82f6;
     box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+  }
+
+  .mic-visualizer {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 24px;
+    background: #0a0a0c;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.2s;
+    -webkit-user-select: none;
+  }
+
+  .mic-visualizer:active {
+    border-color: #22c55e;
+  }
+
+  .bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 4px;
+    height: 60px;
+    width: 100%;
+    justify-content: center;
+  }
+
+  .bar {
+    width: 8px;
+    background: #3f3f46;
+    border-radius: 4px;
+    transition: height 0.05s ease-out;
+  }
+
+  .bar.active {
+    background: #22c55e;
+    box-shadow: 0 0 8px rgba(34, 197, 94, 0.4);
+  }
+
+  .mic-hint {
+    font-size: 13px;
+    color: #71717a;
+  }
+
+  .mic-error {
+    font-size: 12px;
+    color: #ef4444;
+    margin-top: 4px;
   }
 
   .test-mic-btn {
