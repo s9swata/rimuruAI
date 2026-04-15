@@ -90,8 +90,12 @@ export class BackendStdioTransport implements Transport {
         if (payload.id !== pid) return;
 
         if (payload.is_stderr) {
-          // stderr lines are logged but not dispatched as MCP messages
-          console.warn("[BackendStdioTransport] stderr:", payload.line);
+          // Log stderr prominently - npm/npx errors often appear here
+          console.error("[BackendStdioTransport] stderr:", payload.line);
+          // Check for common errors and surface them
+          if (payload.line.includes("not found") || payload.line.includes("ENOENT")) {
+            console.error("[BackendStdioTransport] COMMAND NOT FOUND - check PATH in spawn_process");
+          }
           return;
         }
 

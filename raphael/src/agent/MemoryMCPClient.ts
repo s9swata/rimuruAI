@@ -124,8 +124,12 @@ async function _init(): Promise<MCPClient> {
 
   console.log(`[MemoryMCPClient] Persisting knowledge graph to: ${storagePath}`);
 
+  // Hardcode npx path - in production, make this configurable via settings
+  const npxPath = "/Users/s4swata/.nvm/versions/node/v20.18.0/bin/npx";
+  console.log(`[MemoryMCPClient] Using npx at: ${npxPath}`);
+  
   _transport = new BackendStdioTransport({
-    program: "npx",
+    program: npxPath,
     args: ["-y", "@modelcontextprotocol/server-memory", "--storage-path", storagePath],
   });
 

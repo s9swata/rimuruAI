@@ -104,7 +104,10 @@ async fn spawn_pty(
     cmd.cwd(&working_dir);
     cmd.env("TERM", "xterm-256color");
     cmd.env("HOME", dirs::home_dir().unwrap_or_default().to_string_lossy().as_ref());
-    if let Ok(path) = std::env::var("PATH") { cmd.env("PATH", path); }
+    if let Ok(path) = std::env::var("PATH") { 
+        log(&app, &format!("[spawn_process] PATH={}", path));
+        cmd.env("PATH", path); 
+    }
 
     let mut child = pair.slave.spawn_command(cmd)
         .map_err(|e| format!("Failed to spawn '{}': {}", program, e))?;
