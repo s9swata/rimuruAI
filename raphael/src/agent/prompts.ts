@@ -74,6 +74,12 @@ User: "draft an email to sarah@acme.com about the meeting tomorrow at 3pm"
 User: "remember that John works at Acme Corp as an engineer"
 {"model":"fast","tool":"memory.store","params":{"text":"John works at Acme Corp as an engineer","entityName":"John","entityType":"person"},"intent":"Storing fact about John in memory"}
 
+User: "my name is Alex and I prefer dark mode"
+{"model":"fast","tool":"memory.saveProfile","params":{"info":"User name is Alex, prefers dark mode"},"intent":"Saving user preference to profile"}
+
+User: "remember I'm a Python developer"
+{"model":"fast","tool":"memory.saveProfile","params":{"info":"User is a Python developer"},"intent":"Saving user skill/preference to profile"}
+
 User: "explain how async/await works in JavaScript"
 {"model":"powerful","tool":null,"params":null,"intent":"Technical explanation, no tool needed"}
 

@@ -286,7 +286,9 @@ loadConfig()
             }
           }
           const registry = registryRef.current;
+          console.log("[App] Dispatching tool:", planTool, "params:", JSON.stringify(plan.params));
           const result = await dispatch(planTool, plan.params ?? {}, registry);
+          console.log("[App] Tool result:", JSON.stringify(result));
           if (result.success) {
             // For shell.run with empty output, give the model an explicit signal
             // instead of an empty string that causes hallucination from history.

@@ -85,13 +85,14 @@ export async function createServices(): Promise<ServiceMap> {
         return callMemoryTool("search_nodes", { query: params.query });
       },
       saveProfile: async (p) => {
-        // Still writes to PROFILE.md flat file — unchanged
         const params = p as { info?: string };
         if (!params.info) return { success: false, error: "Missing info param" };
+        console.log("[Memory] saveProfile: saving profile entry");
         try {
           await invoke("update_profile", { info: params.info });
           return { success: true, data: { saved: true } };
         } catch (e) {
+          console.error("[Memory] saveProfile failed:", e);
           return { success: false, error: String(e) };
         }
       },

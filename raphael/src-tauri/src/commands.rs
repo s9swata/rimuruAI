@@ -127,9 +127,25 @@ pub fn store_memory(text: String) -> Result<String, String> {
 }
 
 fn store_dir() -> PathBuf {
-    data_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("raphael")
+    // Cross-platform: try data_dir() first, then fallback based on OS
+    if let Some(dir) = data_dir() {
+        return dir.join("ai.rimuru.raphael");
+    }
+    
+    // Fallback: derive platform-specific app data directory
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+    
+    #[cfg(target_os = "macos")]
+    return home.join("Library/Application Support/ai.rimuru.raphael");
+    
+    #[cfg(target_os = "windows")]
+    return home.join("AppData/Roaming/ai.rimuru.raphael");
+    
+    #[cfg(target_os = "linux")]
+    return home.join(".local/share/ai.rimuru.raphael");
+    
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    return home.join(".local/share/ai.rimuru.raphael");
 }
 
 /// Expose the app data directory to the frontend so TypeScript can construct
@@ -326,7 +342,8 @@ pub fn update_profile(info: String) -> Result<(), String> {
         if let Err(e) = write!(file, "{}", entry) {
             return Err(e.to_string());
         }
-        log_to_file(&format!("update_profile saved: {}", info));
+        log_to_file(&format!("update_profile path: {:?}", path));
+    log_to_file(&format!("update_profile saved: {}", info));
         Ok(())
     } else {
         Err("Could not open PROFILE.md for appending".to_string())
