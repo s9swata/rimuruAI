@@ -1,16 +1,139 @@
-import { PersonaConfig } from "../config/types";
+import { PersonaConfig, BuiltInProvider } from "../config/types";
 import SOUL from "./bootstrap/SOUL.md?raw";
 import AGENTS from "./bootstrap/AGENTS.md?raw";
 import IDENTITY from "./bootstrap/IDENTITY.md?raw";
 import TOOLS_GUIDE from "./bootstrap/TOOLS.md?raw";
 
-export const MODELS = {
-  orchestrator: "openai/gpt-oss-120b", // Groq — structured JSON routing
-  fast: "llama-3.1-8b-instant", // Groq — low latency for simple queries
-  powerful: "llama-3.3-70b-versatile", // Groq — complex reasoning / synthesis
+export const GROQ_MODELS = {
+  orchestrator: "openai/gpt-oss-120b",
+  fast: "llama-3.1-8b-instant",
+  powerful: "llama-3.3-70b-versatile",
 } as const;
 
-export type ModelTier = keyof typeof MODELS;
+export const GEMINI_MODELS = {
+  orchestrator: "gemini-2.0-flash",
+  fast: "gemini-2.0-flash-lite",
+  powerful: "gemini-2.0-pro",
+} as const;
+
+export const CEREBRAS_MODELS = {
+  orchestrator: "llama-3.1-8b",
+  fast: "llama-3.1-8b",
+  powerful: "llama-3.3-70b",
+} as const;
+
+export const OPENAI_MODELS = {
+  orchestrator: "gpt-4o-mini",
+  fast: "gpt-4o-mini",
+  powerful: "gpt-4o",
+} as const;
+
+export const ANTHROPIC_MODELS = {
+  orchestrator: "claude-3-haiku-20240307",
+  fast: "claude-3-haiku-20240307",
+  powerful: "claude-3-5-sonnet-20241022",
+} as const;
+
+export const OPENROUTER_MODELS = {
+  orchestrator: "anthropic/claude-3-haiku",
+  fast: "anthropic/claude-3-haiku",
+  powerful: "anthropic/claude-3.5-sonnet",
+} as const;
+
+export const NVIDIA_MODELS = {
+  orchestrator: "nvidia/llama-3.1-nemotron-70b-instruct",
+  fast: "nvidia/llama-3.1-nemotron-70b-instruct",
+  powerful: "nvidia/llama-3.1-nemotron-70b-instruct",
+} as const;
+
+export type ModelTier = keyof typeof GROQ_MODELS;
+
+// Some Groq models require "openai/" prefix, others don't
+// This map indicates which models need the prefix
+export const GROQ_MODELS_WITH_PREFIX = new Set([
+  "openai/gpt-oss-120b",
+  "openai/gpt-4o",
+  "openai/gpt-4o-mini",
+  "openai/gpt-4-turbo",
+]);
+
+export function getGroqModelId(model: string): string {
+  // If model already starts with "openai/", use as-is
+  if (model.startsWith("openai/")) return model;
+  // If it's a known model that needs prefix, add it
+  if (GROQ_MODELS_WITH_PREFIX.has(`openai/${model}`)) {
+    return `openai/${model}`;
+  }
+  // Otherwise use as-is (e.g., "llama-3.1-8b-instant")
+  return model;
+}
+
+type ModelConfig = Record<ModelTier, string>;
+
+const PROVIDER_MODELS: Record<BuiltInProvider, ModelConfig> = {
+  groq: GROQ_MODELS as ModelConfig,
+  cerebras: CEREBRAS_MODELS as ModelConfig,
+  gemini: GEMINI_MODELS as ModelConfig,
+  openai: OPENAI_MODELS as ModelConfig,
+  anthropic: ANTHROPIC_MODELS as ModelConfig,
+  openrouter: OPENROUTER_MODELS as ModelConfig,
+  nvidia: NVIDIA_MODELS as ModelConfig,
+};
+
+export function getModelForTier(tier: ModelTier, provider: BuiltInProvider | string): string {
+  if (provider === "cerebras") return CEREBRAS_MODELS[tier];
+  if (provider === "gemini") return GEMINI_MODELS[tier];
+  if (provider === "groq") return GROQ_MODELS[tier];
+  if (provider === "openai") return OPENAI_MODELS[tier];
+  if (provider === "anthropic") return ANTHROPIC_MODELS[tier];
+  if (provider === "openrouter") return OPENROUTER_MODELS[tier];
+  if (provider === "nvidia") return NVIDIA_MODELS[tier];
+  return "";
+}
+
+export function getProviderModels(provider: BuiltInProvider): ModelConfig {
+  return PROVIDER_MODELS[provider] || GROQ_MODELS;
+}
+
+export function getAllModelsForProvider(provider: BuiltInProvider): string[] {
+  const models = getProviderModels(provider);
+  return [...new Set(Object.values(models))];
+}
+
+export const PROVIDER_MODEL_OPTIONS: Record<BuiltInProvider, string[]> = {
+  groq: [
+    "openai/gpt-oss-120b",
+    "llama-3.1-8b-instant",
+    "llama-3.3-70b-versatile",
+    "llama-3.2-90b-vision-instruct",
+    "mixtral-8x7b-32768",
+    "llama-3.2-1b-instruct",
+    "llama-3.2-8b-instruct",
+  ],
+  cerebras: ["llama-3.1-8b", "llama-3.3-70b", "llama-3.2-90b"],
+  gemini: ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-2.0-pro", "gemini-1.5-pro", "gemini-1.5-flash"],
+  openai: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
+  anthropic: ["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-opus-20240229", "claude-3-sonnet-20240229", "claude-3-haiku-20240307"],
+  openrouter: [
+    "anthropic/claude-3.5-sonnet", "anthropic/claude-3-haiku", 
+    "openai/gpt-4o", "openai/gpt-4o-mini",
+    "meta-llama/llama-3.1-70b-instruct", "meta-llama/llama-3.1-8b-instruct",
+    "google/gemini-pro-1.5", "mistralai/mixtral-8x7b-instruct"
+  ],
+  nvidia: ["nvidia/llama-3.1-nemotron-70b-instruct", "nvidia/llama-3.1-nemotron-80b-instruct", "deepseek-ai/deepseek-r1"],
+};
+
+export const PROVIDER_LABELS: Record<BuiltInProvider, string> = {
+  groq: "Groq",
+  cerebras: "Cerebras",
+  gemini: "Google Gemini",
+  openai: "OpenAI",
+  anthropic: "Anthropic (Claude)",
+  openrouter: "OpenRouter",
+  nvidia: "NVIDIA NIM",
+};
+
+export const MODELS = GROQ_MODELS;
 
 /**
  * Build the system prompt for a given model tier.

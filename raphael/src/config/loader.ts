@@ -13,6 +13,10 @@ export async function loadConfig(): Promise<RaphaelConfig> {
       persona: { ...DEFAULT_CONFIG.persona, ...(parsed.persona ?? {}) },
       tools: { ...DEFAULT_CONFIG.tools, ...(parsed.tools ?? {}) },
       mcpServers: parsed.mcpServers ?? DEFAULT_CONFIG.mcpServers,
+      customProviders: parsed.customProviders ?? DEFAULT_CONFIG.customProviders,
+      defaultProvider: parsed.defaultProvider ?? DEFAULT_CONFIG.defaultProvider,
+      providerPriority: parsed.providerPriority ?? DEFAULT_CONFIG.providerPriority,
+      rateLimitConfig: parsed.rateLimitConfig ?? DEFAULT_CONFIG.rateLimitConfig,
     };
   } catch {
     return DEFAULT_CONFIG;

@@ -1,6 +1,6 @@
 # Raphael
 
-A personal AI assistant that lives in your menu bar. Built with Tauri, React, and Groq.
+A personal AI agent that lives in your menu bar. Built with Tauri, React, and Groq.
 
 ## Features
 

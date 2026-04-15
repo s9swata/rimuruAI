@@ -1,6 +1,16 @@
 {
   "persona": { "address": "sir", "tone": "jarvis", "verbosity": "terse" },
   "trustLevel": "balanced",
+  "defaultProvider": "groq",
+  "customProviders": [
+    {
+      "name": "ollama-local",
+      "baseURL": "http://localhost:11434/v1",
+      "apiKey": "",
+      "models": ["llama3", "mistral", "codellama"],
+      "enabled": false
+    }
+  ],
   "tools": {
     "gmail.sendEmail":            { "requiresApproval": true },
     "gmail.draftEmail":           { "requiresApproval": false },

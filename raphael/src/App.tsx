@@ -250,7 +250,7 @@ loadConfig()
       const slashCmd = parseSlashCommand(text);
       let lastPlan = slashCmd
         ? { model: "fast" as const, tool: slashCmd.tool, params: slashCmd.params, intent: `slash: ${slashCmd.tool}` }
-        : await orchestrate(text, history, config.persona, combinedProfile, registryRef.current)
+        : await orchestrate(text, history, config.persona, combinedProfile, registryRef.current, undefined, config.providerPriority, config.rateLimitConfig, config.modelSelection)
             .catch((e) => {
               console.error("Orchestrator failed, falling back to fast model:", e);
               return { model: "fast" as const, tool: null, params: null, intent: "direct response" };
@@ -319,7 +319,7 @@ loadConfig()
 
         // Re-orchestrate for potential chaining (unless we've hit the last iteration)
         if (iter < MAX_TOOL_ITERS - 1) {
-          lastPlan = await orchestrate(text, history, config.persona, combinedProfile, registryRef.current, iterContext).catch((e) => {
+          lastPlan = await orchestrate(text, history, config.persona, combinedProfile, registryRef.current, iterContext, config.providerPriority, config.rateLimitConfig, config.modelSelection).catch((e) => {
             console.error("Re-orchestration failed, stopping chain:", e);
             return { model: "fast" as const, tool: null, params: null, intent: "direct response" };
           });
@@ -345,6 +345,10 @@ loadConfig()
           ],
           (chunk) => chatDispatch({ type: "APPEND_STREAM", id: replyId, chunk }),
           () => chatDispatch({ type: "FINISH_STREAM", id: replyId }),
+          config.providerPriority,
+          config.rateLimitConfig,
+          config.modelSelection,
+          lastPlan.model,
         );
       } catch (streamErr) {
         // Remove the empty streaming bubble and show a real error message

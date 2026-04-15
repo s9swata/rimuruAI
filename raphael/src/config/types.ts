@@ -4,6 +4,16 @@ export interface ToolConfig {
 
 export type TrustLevel = "supervised" | "balanced" | "autonomous";
 
+export type BuiltInProvider = "groq" | "gemini" | "openai" | "anthropic" | "openrouter" | "nvidia" | "cerebras";
+
+export interface CustomProviderConfig {
+  name: string;
+  baseURL: string;
+  apiKey: string;
+  models: string[];
+  enabled: boolean;
+}
+
 export interface McpServerConfig {
   name: string;
   command: string;
@@ -17,6 +27,22 @@ export interface PersonaConfig {
   verbosity: "terse" | "balanced" | "verbose";
 }
 
+export interface ProviderPriorityConfig {
+  provider: BuiltInProvider;
+  priority: number;
+  enabled: boolean;
+}
+
+export interface ProviderRateLimitConfig {
+  maxTokensPerDay: number;
+  warnThreshold: number;
+}
+
+export interface ModelSelection {
+  provider: BuiltInProvider;
+  model: string;
+}
+
 export interface RaphaelConfig {
   persona: PersonaConfig;
   trustLevel: TrustLevel;
@@ -24,6 +50,15 @@ export interface RaphaelConfig {
   watchedFolders: string[];
   hotkey: string;
   mcpServers: McpServerConfig[];
+  customProviders: CustomProviderConfig[];
+  defaultProvider: BuiltInProvider | string;
+  providerPriority: ProviderPriorityConfig[];
+  rateLimitConfig: Record<BuiltInProvider, ProviderRateLimitConfig>;
+  modelSelection: {
+    orchestrator: ModelSelection;
+    fast: ModelSelection;
+    powerful: ModelSelection;
+  };
 }
 
 export const DEFAULT_CONFIG: RaphaelConfig = {
@@ -46,6 +81,31 @@ export const DEFAULT_CONFIG: RaphaelConfig = {
   watchedFolders: [],
   hotkey: "Super+Shift+Space",
   mcpServers: [],
+  customProviders: [],
+  defaultProvider: "groq",
+  providerPriority: [
+    { provider: "groq", priority: 1, enabled: true },
+    { provider: "cerebras", priority: 2, enabled: true },
+    { provider: "openrouter", priority: 3, enabled: true },
+    { provider: "anthropic", priority: 4, enabled: true },
+    { provider: "openai", priority: 5, enabled: true },
+    { provider: "gemini", priority: 6, enabled: true },
+    { provider: "nvidia", priority: 7, enabled: false },
+  ],
+  rateLimitConfig: {
+    groq: { maxTokensPerDay: 500_000, warnThreshold: 0.8 },
+    cerebras: { maxTokensPerDay: 500_000, warnThreshold: 0.8 },
+    openrouter: { maxTokensPerDay: 200_000, warnThreshold: 0.8 },
+    anthropic: { maxTokensPerDay: 100_000, warnThreshold: 0.8 },
+    openai: { maxTokensPerDay: 100_000, warnThreshold: 0.8 },
+    gemini: { maxTokensPerDay: 150_000, warnThreshold: 0.8 },
+    nvidia: { maxTokensPerDay: 100_000, warnThreshold: 0.8 },
+  },
+  modelSelection: {
+    orchestrator: { provider: "groq", model: "openai/gpt-oss-120b" },
+    fast: { provider: "groq", model: "llama-3.1-8b-instant" },
+    powerful: { provider: "groq", model: "llama-3.3-70b-versatile" },
+  },
 };
 
 export function applyTrustLevel(

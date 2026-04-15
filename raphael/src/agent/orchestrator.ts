@@ -1,7 +1,6 @@
-import { generateText } from "ai";
-import { MODELS, buildSystemPrompt } from "./prompts";
-import { PersonaConfig } from "../config/types";
-import { withGroqRetry } from "./providers";
+import { buildSystemPrompt } from "./prompts";
+import { PersonaConfig, ProviderPriorityConfig, BuiltInProvider, ModelSelection } from "../config/types";
+import { generateTextWithFallback } from "./providers";
 import { ToolRegistry } from "./registry";
 
 export interface OrchestratorResult {
@@ -33,7 +32,10 @@ export async function orchestrate(
   persona: PersonaConfig,
   profileContext: string,
   registry: ToolRegistry,
-  toolResult?: string,  // ← NEW: result from previous tool call in the chain
+  toolResult?: string,
+  providerPriority?: ProviderPriorityConfig[],
+  rateLimitConfig?: Record<BuiltInProvider, { maxTokensPerDay: number; warnThreshold: number }>,
+  modelSelection?: { orchestrator: ModelSelection; fast: ModelSelection; powerful: ModelSelection },
 ): Promise<OrchestratorResult> {
   console.log("[Orchestrator] Starting orchestration...");
 
@@ -60,22 +62,23 @@ export async function orchestrate(
   }
 
   try {
-    console.log("[Orchestrator] Calling generateText via Groq (with retry)...");
+    // Default priority if not provided
+    const priority = providerPriority || [
+      { provider: "groq", priority: 1, enabled: true },
+      { provider: "cerebras", priority: 2, enabled: true },
+      { provider: "openrouter", priority: 3, enabled: true },
+      { provider: "anthropic", priority: 4, enabled: true },
+    ];
 
-    const { text, finishReason, usage } = await withGroqRetry(async (provider) => {
-      const model = provider(MODELS.orchestrator);
-      return generateText({
-        model,
-        messages,
-        temperature: 0,
-      });
-    });
+    console.log("[Orchestrator] Calling generateText with fallback...");
 
-    console.log("[Orchestrator] Raw response:", text, "finishReason:", finishReason, "usage:", usage);
+    const result = await generateTextWithFallback(messages, "orchestrator", priority, rateLimitConfig, modelSelection);
 
-    const result = parseOrchestration(text);
-    console.log("[Orchestrator] Parsed result:", result);
-    return result;
+    console.log("[Orchestrator] Raw response:", result.text, "finishReason:", result.finishReason, "provider:", result.provider, "model:", result.model);
+
+    const parsed = parseOrchestration(result.text);
+    console.log("[Orchestrator] Parsed result:", parsed);
+    return parsed;
   } catch (e) {
     console.error("[Orchestrator] Error:", String(e));
     return FALLBACK;
