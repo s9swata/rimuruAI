@@ -455,8 +455,7 @@ pub async fn start_mic_test(app: &tauri::AppHandle, device_name: Option<&str>) -
             if let Ok(buf) = lock_result {
                 let len = buf.len();
                 if len > 0 {
-                    let samples: Vec<f32> = buf.iter().copied().collect();
-                    let avg = samples.iter().map(|s| s.abs()).sum::<f32>() / len as f32;
+                    let avg = buf.iter().map(|s| s.abs()).sum::<f32>() / len as f32;
                     let normalized = (avg * 10.0).clamp(0.0, 1.0);
                     
                     let _ = app_handle.emit("mic-amplitude", normalized);

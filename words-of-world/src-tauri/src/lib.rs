@@ -217,6 +217,8 @@ pub fn run() {
             recorder: Mutex::new(AudioRecorder::new()),
             http_client: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(30))
+                .pool_max_idle_per_host(1)
+                .pool_idle_timeout(Some(std::time::Duration::from_secs(300)))
                 .build()
                 .expect("failed to build HTTP client"),
         })
