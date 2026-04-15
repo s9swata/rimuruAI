@@ -25,6 +25,8 @@
   let micAmplitude = 0;
   let unlistenMicAmplitude: UnlistenFn;
 
+  $: apiKeyDisplay = hasApiKey ? '••••••••••••••••' : '';
+
   onMount(async () => {
     settings = await loadSettings();
     if (settings.hotkey) {
@@ -258,7 +260,7 @@
           <input
             id="groq-api-key"
             type="password"
-            placeholder="gsk_..."
+            placeholder={hasApiKey ? 'API key saved' : 'gsk_...'}
             bind:value={settings.groqApiKey}
             autocomplete="off"
           />
