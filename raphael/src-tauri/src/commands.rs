@@ -1,6 +1,8 @@
 use crate::secure_store::SecureStore;
+use crate::chunk_store;
 
 use dirs::data_dir;
+use lopdf::Document;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
@@ -424,4 +426,322 @@ pub async fn http_fetch(params: HttpFetchParams) -> Result<serde_json::Value, St
     let json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
     log_to_file(&format!("http_fetch success: {}", json));
     Ok(json)
+}
+
+#[tauri::command]
+pub fn save_temp_file(file_name: String, data: String) -> Result<String, String> {
+    let temp_dir = std::env::temp_dir().join("raphael_uploads");
+    
+    std::fs::create_dir_all(&temp_dir).map_err(|e| e.to_string())?;
+    
+    let file_path = temp_dir.join(&file_name);
+    let decoded = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &data)
+        .map_err(|e| format!("Failed to decode base64: {}", e))?;
+    
+    std::fs::write(&file_path, decoded).map_err(|e| e.to_string())?;
+    
+    log_to_file(&format!("Saved temp file: {:?}", file_path));
+    Ok(file_path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub fn read_temp_file(file_path: String) -> Result<String, String> {
+    let data = std::fs::read(&file_path).map_err(|e| e.to_string())?;
+    let encoded = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &data);
+    Ok(encoded)
+}
+
+#[tauri::command]
+pub fn get_temp_dir() -> Result<String, String> {
+    let temp_dir = std::env::temp_dir().join("raphael_uploads");
+    
+    std::fs::create_dir_all(&temp_dir).map_err(|e| e.to_string())?;
+    
+    Ok(temp_dir.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub async fn embed_file(file_path: String, mime_type: String) -> Result<Vec<f64>, String> {
+    log_to_file(&format!("[embed_file] Starting for: {}", file_path));
+
+    let path = std::path::Path::new(&file_path);
+    if !path.exists() {
+        return Err(format!("File does not exist: {:?}", path));
+    }
+
+    let store = SecureStore::new(store_dir()).map_err(|e| format!("Store error: {}", e))?;
+    let api_key = store
+        .get("gemini_api_key")
+        .map_err(|e| format!("Get key error: {}", e))?
+        .ok_or_else(|| "No Gemini API key".to_string())?;
+    // Keys are stored as JSON arrays ["key1","key2"] by the multi-key UI — extract the first one
+    let api_key = {
+        let trimmed = api_key.trim();
+        if trimmed.starts_with('[') {
+            serde_json::from_str::<Vec<String>>(trimmed)
+                .ok()
+                .and_then(|v| v.into_iter().find(|k| !k.is_empty()))
+                .ok_or_else(|| "No Gemini API key in stored array".to_string())?
+        } else {
+            trimmed.to_string()
+        }
+    };
+    log_to_file(&format!("[embed_file] API key: {} chars", api_key.len()));
+
+    let file_data = std::fs::read(&file_path).map_err(|e| format!("Read error: {}", e))?;
+    log_to_file(&format!("[embed_file] Uploading {} bytes via File API", file_data.len()));
+
+    let file_uri = upload_to_gemini_file_api(&file_data, &mime_type, &api_key).await?;
+    log_to_file(&format!("[embed_file] File URI: {}", file_uri));
+
+    let client = reqwest::Client::new();
+    let request_body = serde_json::json!({
+        "content": {
+            "parts": [{
+                "file_data": {
+                    "mime_type": mime_type,
+                    "file_uri": file_uri
+                }
+            }]
+        }
+    });
+
+    let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2-preview:embedContent";
+    log_to_file("[embed_file] Calling embedContent...");
+
+    let response = client
+        .post(url)
+        .header("Content-Type", "application/json")
+        .header("x-goog-api-key", &api_key)
+        .json(&request_body)
+        .send()
+        .await
+        .map_err(|e| format!("Request error: {}", e))?;
+
+    let status = response.status();
+    log_to_file(&format!("[embed_file] embedContent status: {}", status));
+
+    if !status.is_success() {
+        let text = response.text().await.unwrap_or_default();
+        log_to_file(&format!("[embed_file] Error: {}", text));
+        return Err(format!("API error: {} {}", status, text));
+    }
+
+    let json: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Parse error: {}", e))?;
+
+    let values: Vec<f64> = json
+        .get("embedding")
+        .and_then(|e| e.get("values"))
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_f64()).collect())
+        .ok_or_else(|| format!("No embedding in response: {}", json))?;
+
+    log_to_file(&format!("[embed_file] Done: {} values", values.len()));
+    Ok(values)
+}
+
+async fn upload_to_gemini_file_api(data: &[u8], mime_type: &str, api_key: &str) -> Result<String, String> {
+    const UPLOAD_BASE: &str = "https://generativelanguage.googleapis.com/upload/v1beta/files";
+    const API_BASE: &str = "https://generativelanguage.googleapis.com/v1beta/files";
+
+    let client = reqwest::Client::new();
+    let size = data.len();
+
+    // Step 1: initiate resumable upload session
+    let start_resp = client
+        .post(UPLOAD_BASE)
+        .header("x-goog-api-key", api_key)
+        .header("X-Goog-Upload-Protocol", "resumable")
+        .header("X-Goog-Upload-Command", "start")
+        .header("X-Goog-Upload-Header-Content-Length", size.to_string())
+        .header("X-Goog-Upload-Header-Content-Type", mime_type)
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({ "file": { "display_name": "upload" } }))
+        .send()
+        .await
+        .map_err(|e| format!("File API: initiate failed: {}", e))?;
+
+    let start_status = start_resp.status();
+    if !start_status.is_success() {
+        let body = start_resp.text().await.unwrap_or_default();
+        return Err(format!("File API start returned {}: {}", start_status, body));
+    }
+
+    let upload_url = start_resp
+        .headers()
+        .get("x-goog-upload-url")
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| "File API: no X-Goog-Upload-URL in response headers".to_string())?
+        .to_string();
+
+    log_to_file(&format!("[upload_to_gemini] Uploading {} bytes", size));
+
+    // Step 2: PUT raw bytes to the upload URL
+    let put_resp = client
+        .put(&upload_url)
+        .header("Content-Length", size.to_string())
+        .header("X-Goog-Upload-Offset", "0")
+        .header("X-Goog-Upload-Command", "upload, finalize")
+        .body(data.to_vec())
+        .send()
+        .await
+        .map_err(|e| format!("File API: PUT failed: {}", e))?;
+
+    let put_status = put_resp.status();
+    if !put_status.is_success() {
+        let body = put_resp.text().await.unwrap_or_default();
+        return Err(format!("File API PUT returned {}: {}", put_status, body));
+    }
+
+    #[derive(Deserialize)]
+    struct FileInfo {
+        file: FileData,
+    }
+    #[derive(Deserialize)]
+    struct FileData {
+        name: String,
+        uri: String,
+        #[serde(default)]
+        state: String,
+    }
+
+    let file_info: FileInfo = put_resp
+        .json()
+        .await
+        .map_err(|e| format!("File API: failed to parse upload response: {}", e))?;
+
+    if file_info.file.state == "ACTIVE" {
+        return Ok(file_info.file.uri);
+    }
+
+    poll_file_until_active(&client, API_BASE, api_key, &file_info.file.name).await
+}
+
+async fn poll_file_until_active(
+    client: &reqwest::Client,
+    api_base: &str,
+    api_key: &str,
+    file_name: &str,
+) -> Result<String, String> {
+    const MAX_ATTEMPTS: usize = 20;
+    const POLL_INTERVAL_MS: u64 = 1500;
+
+    #[derive(Deserialize)]
+    struct FileStatus {
+        #[allow(dead_code)]
+        name: String,
+        uri: String,
+        state: String,
+    }
+
+    for attempt in 0..MAX_ATTEMPTS {
+        let resp = client
+            .get(format!("{}/{}", api_base, file_name))
+            .header("x-goog-api-key", api_key)
+            .send()
+            .await
+            .map_err(|e| format!("File API: poll failed: {}", e))?;
+
+        let status: FileStatus = resp
+            .json()
+            .await
+            .map_err(|e| format!("File API: failed to parse poll response: {}", e))?;
+
+        if status.state == "ACTIVE" {
+            return Ok(status.uri);
+        }
+
+        log_to_file(&format!(
+            "[poll_file] state={} attempt {}/{}",
+            status.state,
+            attempt + 1,
+            MAX_ATTEMPTS
+        ));
+
+        if attempt < MAX_ATTEMPTS - 1 {
+            tokio::time::sleep(std::time::Duration::from_millis(POLL_INTERVAL_MS)).await;
+        }
+    }
+
+    Err(format!(
+        "File API: file did not become ACTIVE within {} attempts",
+        MAX_ATTEMPTS
+    ))
+}
+
+#[tauri::command]
+pub fn pick_file() -> Result<Option<String>, String> {
+    log_to_file("[pick_file] Starting file picker dialog");
+
+    // For security reasons, we can't actually open a file picker from the Tauri backend
+    // This would require frontend integration with a file picker library
+    // Instead, we'll return an error indicating this functionality needs frontend implementation
+    Err("File picker not implemented - use frontend file input instead".to_string())
+}
+
+#[tauri::command]
+pub fn extract_text_from_file(file_path: String, mime_type: String) -> Result<String, String> {
+    log_to_file(&format!("[extract_text_from_file] file={} mime={}", file_path, mime_type));
+    match mime_type.as_str() {
+        "application/pdf" => {
+            let doc = Document::load(&file_path)
+                .map_err(|e| format!("PDF load error: {}", e))?;
+            let page_numbers: Vec<u32> = doc.get_pages().keys().cloned().collect();
+            let mut text_parts: Vec<String> = Vec::new();
+            for page_num in page_numbers {
+                if let Ok(text) = doc.extract_text(&[page_num]) {
+                    text_parts.push(text);
+                }
+            }
+            Ok(text_parts.join("\n"))
+        }
+        "text/plain" => {
+            std::fs::read_to_string(&file_path).map_err(|e| e.to_string())
+        }
+        _ => Err("Text extraction not supported for this file type".to_string()),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct IncomingChunk {
+    #[serde(rename = "chunkIndex")]
+    pub chunk_index: usize,
+    pub text: String,
+    pub embedding: Vec<f64>,
+}
+
+#[tauri::command]
+pub fn store_chunks(file_name: String, chunks: Vec<IncomingChunk>) -> Result<(), String> {
+    log_to_file(&format!("[store_chunks] file={} count={}", file_name, chunks.len()));
+    let dir = store_dir();
+    let mut existing = chunk_store::load_chunks(&dir);
+    existing.retain(|c| c.file_name != file_name);
+    for c in chunks {
+        existing.push(chunk_store::StoredChunk {
+            file_name: file_name.clone(),
+            chunk_index: c.chunk_index,
+            text: c.text,
+            embedding: c.embedding,
+        });
+    }
+    log_to_file(&format!("[store_chunks] total stored={}", existing.len()));
+    chunk_store::save_chunks(&dir, &existing);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn search_chunks(
+    query_embedding: Vec<f64>,
+    top_k: usize,
+    file_names: Option<Vec<String>>,
+) -> Result<Vec<chunk_store::ChunkResult>, String> {
+    log_to_file(&format!("[search_chunks] top_k={}", top_k));
+    let dir = store_dir();
+    let chunks = chunk_store::load_chunks(&dir);
+    let results = chunk_store::search(&query_embedding, &chunks, top_k, file_names.as_deref());
+    log_to_file(&format!("[search_chunks] results={}", results.len()));
+    Ok(results)
 }

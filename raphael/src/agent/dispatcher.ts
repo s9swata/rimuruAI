@@ -51,6 +51,9 @@ export type ServiceMap = {
   files: {
     searchFiles: (params: Record<string, unknown>) => Promise<ToolResult>;
     readFile: (params: Record<string, unknown>) => Promise<ToolResult>;
+    analyzeDocument: (params: Record<string, unknown>) => Promise<ToolResult>;
+    embedText: (params: Record<string, unknown>) => Promise<ToolResult>;
+    queryDocument: (params: Record<string, unknown>) => Promise<ToolResult>;
   };
   memory: {
     query: (params: Record<string, unknown>) => Promise<ToolResult>;

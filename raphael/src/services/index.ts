@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { ServiceMap, ResourceManifest } from "../agent/dispatcher";
 import { calendarService } from "../calendar/store";
 import { callMemoryTool } from "../agent/MemoryMCPClient";
+import { analyzeDocument, queryDocument } from "./fileAnalysis";
 
 
 
@@ -70,6 +71,49 @@ export async function createServices(): Promise<ServiceMap> {
         try {
           const content = await invoke<string>("read_file_content", { path });
           return { success: true, data: { path, content } };
+        } catch (e) {
+          return { success: false, error: String(e) };
+        }
+      },
+      analyzeDocument: async (p) => {
+        const params = p as { fileData?: string; fileName?: string; mimeType?: string };
+        try {
+          if (!params.fileData || !params.fileName) {
+            return { success: false, error: "Missing fileData or fileName" };
+          }
+          const byteCharacters = atob(params.fileData);
+          const byteNumbers = new Array(byteCharacters.length);
+          for (let i = 0; i < byteCharacters.length; i++) {
+            byteNumbers[i] = byteCharacters.charCodeAt(i);
+          }
+          const byteArray = new Uint8Array(byteNumbers);
+          const blob = new Blob([byteArray], { type: params.mimeType });
+          const file = new File([blob], params.fileName, { type: params.mimeType });
+          const result = await analyzeDocument(file);
+          return { success: true, data: result };
+        } catch (e) {
+          return { success: false, error: String(e) };
+        }
+      },
+      embedText: async (p) => {
+        const params = p as { text?: string };
+        try {
+          if (!params.text) {
+            return { success: false, error: "Missing text parameter" };
+          }
+          const { embedContent } = await import("./fileAnalysis");
+          const embedding = await embedContent(params.text);
+          return { success: true, data: { embedding } };
+        } catch (e) {
+          return { success: false, error: String(e) };
+        }
+      },
+      queryDocument: async (p) => {
+        const params = p as { question?: string; topK?: number };
+        try {
+          if (!params.question) return { success: false, error: "Missing question parameter" };
+          const result = await queryDocument(params.question, params.topK ?? 5);
+          return { success: true, data: { content: result } };
         } catch (e) {
           return { success: false, error: String(e) };
         }

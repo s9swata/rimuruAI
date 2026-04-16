@@ -18,6 +18,7 @@ import { streamChat } from "./agent/groq";
 import { buildSystemPrompt } from "./agent/prompts";
 import { createServices } from "./services";
 import { initRegistry, ToolRegistry, bootstrapResourceTools } from "./agent/registry";
+import type { FileAttachment } from "./components/FileAttachmentList";
 
 function DebugPanel() {
   const [logs, setLogs] = useState<string[]>([]);
@@ -107,7 +108,10 @@ export default function App() {
   const [profileContent, setProfileContent] = useState<string>("");
   const [startupMemory, setStartupMemory] = useState<string>("");
   const [pendingApproval, setPendingApproval] = useState<{ cardId: string; tool: string; params: Record<string, unknown> } | null>(null);
+  const [pendingAttachments, setPendingAttachments] = useState(0);
   const approvalResolveRef = useRef<((ok: boolean) => void) | null>(null);
+  const submittingRef = useRef(false);
+  const hasDocumentsRef = useRef(false);
   const { state, dispatch: chatDispatch } = useChatStore();
   const loadFromGist = useCalendarStore((s) => s.loadFromGist);
   const registryRef = useRef<ToolRegistry | null>(null);
@@ -229,7 +233,10 @@ loadConfig()
     .filter((i) => i.type === "message" && !((i.data as { content: string }).content.startsWith("Error:")))
     .map((i) => ({ role: (i.data as { role: string }).role as "user" | "assistant", content: (i.data as { content: string }).content }));
 
-  const handleSubmit = useCallback(async (text: string) => {
+  const handleSubmit = useCallback(async (text: string, attachments?: FileAttachment[]) => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    console.log("[App] handleSubmit called, attachments:", attachments?.length);
     const userMsgId = crypto.randomUUID();
     chatDispatch({ type: "ADD_MESSAGE", msg: { id: userMsgId, role: "user", content: text } });
     setThinking(true);
@@ -246,15 +253,86 @@ loadConfig()
       let toolContext = "";
       const combinedProfile = [profileContent, startupMemory].filter(Boolean).join("\n\n---\n\n");
 
+      // Handle file attachments - analyze them first
+      let fileAnalysisContext = "";
+      console.log("[App] Processing attachments:", attachments?.length, attachments?.map(a => ({ id: a.id, name: a.file.name })));
+      setPendingAttachments(attachments?.length || 0);
+      
+      if (attachments && attachments.length > 0) {
+        for (const attachment of attachments) {
+          console.log("[App] Analyzing file:", attachment.file.name, "id:", attachment.id);
+          chatDispatch({ type: "ADD_TOOL", card: { id: attachment.id, tool: "files.analyzeDocument", status: "running" } });
+          
+          try {
+            const reader = new FileReader();
+            const base64Promise = new Promise<string>((resolve) => {
+              reader.onload = () => {
+                const result = reader.result as string;
+                resolve(result.split(",")[1]);
+              };
+              reader.readAsDataURL(attachment.file);
+            });
+            
+            const base64 = await base64Promise;
+            const mimeType = attachment.file.type;
+            const fileName = attachment.file.name;
+            
+            const result = await registryRef.current.execute("files.analyzeDocument", {
+              fileData: base64,
+              fileName,
+              mimeType,
+            });
+
+            setPendingAttachments(prev => prev - 1);
+            console.log("[App] analyzeDocument result:", result);
+            if (result.success) {
+              const fileData = result.data as { chunksStored?: number; error?: string } | undefined;
+              if (fileData && !fileData.error && fileData.chunksStored && fileData.chunksStored > 0) {
+                hasDocumentsRef.current = true;
+                fileAnalysisContext += `\n\n[File "${fileName}" has been processed and stored. ${fileData.chunksStored} chunks are searchable. Use files.queryDocument to answer questions about it.]`;
+                chatDispatch({ type: "UPDATE_TOOL", id: attachment.id, status: "done", result: "Analysis complete" });
+              } else if (fileData?.error) {
+                fileAnalysisContext += `\n\n[File "${fileName}" processing failed: ${fileData.error}]`;
+                chatDispatch({ type: "UPDATE_TOOL", id: attachment.id, status: "error", result: fileData.error });
+              } else {
+                chatDispatch({ type: "UPDATE_TOOL", id: attachment.id, status: "done", result: "Analysis complete" });
+              }
+            } else {
+              chatDispatch({ type: "UPDATE_TOOL", id: attachment.id, status: "error", result: result.error });
+            }
+          } catch (e) {
+            setPendingAttachments(prev => prev - 1);
+            chatDispatch({ type: "UPDATE_TOOL", id: attachment.id, status: "error", result: String(e) });
+          }
+        }
+      } else {
+        setPendingAttachments(0);
+      }
+
       // Slash command fast-path
       const slashCmd = parseSlashCommand(text);
+      const justUploadedFiles = fileAnalysisContext.includes("chunks are searchable");
+      const hasStoredDocs = hasDocumentsRef.current;
       let lastPlan = slashCmd
         ? { model: "fast" as const, tool: slashCmd.tool, params: slashCmd.params, intent: `slash: ${slashCmd.tool}` }
-        : await orchestrate(text, history, config.persona, combinedProfile, registryRef.current, undefined, config.providerPriority, config.rateLimitConfig, config.modelSelection)
-            .catch((e) => {
-              console.error("Orchestrator failed, falling back to fast model:", e);
-              return { model: "fast" as const, tool: null, params: null, intent: "direct response" };
-            });
+        : justUploadedFiles
+        ? { model: "powerful" as const, tool: "files.queryDocument", params: { question: text }, intent: "query uploaded document" }
+        : await orchestrate(
+            text,
+            history,
+            config.persona,
+            combinedProfile,
+            registryRef.current,
+            hasStoredDocs
+              ? `Previously uploaded documents are searchable via files.queryDocument. Use it only if the user is asking about a document.`
+              : (fileAnalysisContext || undefined),
+            config.providerPriority,
+            config.rateLimitConfig,
+            config.modelSelection,
+          ).catch((e) => {
+            console.error("Orchestrator failed, falling back to fast model:", e);
+            return { model: "fast" as const, tool: null, params: null, intent: "direct response" };
+          });
 
       for (let iter = 0; iter < MAX_TOOL_ITERS && lastPlan.tool; iter++) {
         const plan = lastPlan;
@@ -328,9 +406,15 @@ loadConfig()
 
       const model = pickModel(lastPlan.model);
       const systemPrompt = buildSystemPrompt(lastPlan.model === "fast" ? "fast" : "powerful", config.persona, combinedProfile);
+
+      const isDocQuery = justUploadedFiles || lastPlan.tool === "files.queryDocument";
       const contextMsg = toolContext
-        ? `Tool result:\n${toolContext.slice(0, 8000)}\n\nNow respond to the user naturally.`
+        ? `Tool result:\n${toolContext.slice(0, 8000)}\n\nUser's request: "${text}"\n\nAnswer the user's request precisely using only the information above. Follow their exact instructions — if they ask for 3 questions give exactly 3, if they ask for the first question give only the first, do not add extras.`
         : text;
+
+      // Doc queries: drop history — chunks are self-contained context
+      // Everything else: keep last 4 messages to save tokens
+      const historySlice = isDocQuery ? [] : history.slice(-4);
 
       const replyId = crypto.randomUUID();
       chatDispatch({ type: "ADD_MESSAGE", msg: { id: replyId, role: "assistant", content: "", streaming: true } });
@@ -340,7 +424,7 @@ loadConfig()
           model,
           [
             { role: "system", content: systemPrompt },
-            ...history.slice(-8),
+            ...historySlice,
             { role: "user", content: contextMsg },
           ],
           (chunk) => chatDispatch({ type: "APPEND_STREAM", id: replyId, chunk }),
@@ -361,6 +445,7 @@ loadConfig()
       chatDispatch({ type: "ADD_MESSAGE", msg: { id: errId, role: "assistant", content: `Error: ${String(e)}` } });
     } finally {
       setThinking(false);
+      submittingRef.current = false;
     }
   }, [config, history, chatDispatch, profileContent, startupMemory]);
 
@@ -414,7 +499,11 @@ if (ready === null) return null;
         }}
         onEmailDiscard={(id) => chatDispatch({ type: "REMOVE", id })}
       />
-      <InputBar onSubmit={handleSubmit} disabled={thinking} />
+      <InputBar 
+        onSubmit={handleSubmit} 
+        disabled={thinking}
+        pendingAttachments={pendingAttachments}
+      />
       {showSettings && (
         <SettingsPanel
           config={config}

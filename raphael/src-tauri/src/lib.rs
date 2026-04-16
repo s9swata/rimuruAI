@@ -5,6 +5,7 @@ mod google_oauth;
 mod gmail_api;
 mod shell_exec;
 mod resource_engine;
+mod chunk_store;
 
 
 use tauri::{
@@ -22,7 +23,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|app, shortcut, event| {
+                .with_handler(|app, _shortcut, event| {
                     if event.state == ShortcutState::Pressed {
                         toggle_window(app);
                     }
@@ -74,9 +75,17 @@ pub fn run() {
             commands::update_profile,
             commands::get_store_dir,
             commands::http_fetch,
+            commands::save_temp_file,
+            commands::read_temp_file,
+            commands::get_temp_dir,
+            commands::embed_file,
+            commands::pick_file,
 
             commands::graphify_query,
             commands::store_memory,
+            commands::extract_text_from_file,
+            commands::store_chunks,
+            commands::search_chunks,
             search::search_web,
 
             // Shell Execution Module

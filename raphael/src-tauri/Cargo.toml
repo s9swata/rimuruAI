@@ -22,7 +22,7 @@ sha2 = "0.10"
 hex = "0.4"
 dirs = "5"
 chrono = "0.4"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", features = ["json", "blocking"] }
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
 better-auth = { version = "0.10", features = ["axum"] }
 oauth2 = "4"
@@ -31,3 +31,4 @@ base64 = "0.22"
 url = "2"
 urlencoding = "2"
 portable-pty = "0.8"
+lopdf = "0.34"

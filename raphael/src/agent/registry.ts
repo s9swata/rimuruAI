@@ -247,6 +247,39 @@ export function initRegistry(services: ServiceMap): ToolRegistry {
     },
     services.files.readFile,
   );
+  r.register(
+    {
+      name: "files.analyzeDocument",
+      description: "Analyze a document (PDF, image, text file) and generate embeddings using Gemini. Upload file as base64 with fileName and mimeType.",
+      parameters: {
+        fileData: { type: "string", description: "Base64 encoded file content" },
+        fileName: { type: "string", description: "Original file name" },
+        mimeType: { type: "string", description: "MIME type (e.g., application/pdf, image/png)" },
+      },
+      type: "builtin",
+    },
+    services.files.analyzeDocument,
+  );
+  r.register(
+    {
+      name: "files.embedText",
+      description: "Generate embeddings for text using Gemini embedding model",
+      parameters: { text: { type: "string", description: "Text to embed" } },
+      type: "builtin",
+    },
+    services.files.embedText,
+  );
+  r.register(
+    {
+      name: "files.queryDocument",
+      description: "Search uploaded documents for content relevant to a question. Use this when the user asks about a document they have uploaded. Returns the most relevant text chunks.",
+      parameters: {
+        question: { type: "string", description: "The question or topic to search for in uploaded documents" },
+      },
+      type: "builtin",
+    },
+    services.files.queryDocument,
+  );
 
   // ── memory (MCP server-memory) ────────────────────────────────────────
   r.register(

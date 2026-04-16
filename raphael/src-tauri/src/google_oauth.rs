@@ -7,7 +7,7 @@
 //! 4. axum handler exchanges code for tokens, stores in SecureStore
 //! 5. Returns via oneshot channel to signal completion
 
-use std::net::SocketAddr;
+
 use std::path::PathBuf;
 use tokio::sync::oneshot;
 use axum::{extract::Query, routing::get, Router};

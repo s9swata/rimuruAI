@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
-use std::process::{Child, ChildStdin, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::process::{Child, Stdio};
 
 use portable_pty::{CommandBuilder, MasterPty, NativePtySystem, PtySize, PtySystem};
 use serde::Serialize;
@@ -175,10 +176,14 @@ async fn spawn_pipes(
     let stdout = child.stdout.take().ok_or("Could not capture stdout")?;
     let stderr = child.stderr.take().ok_or("Could not capture stderr")?;
 
+    let stdout_done = Arc::new(AtomicBool::new(false));
+    let stderr_done = Arc::new(AtomicBool::new(false));
+
     // Stream stdout
     {
         let id_clone = id.clone();
         let app_clone = app.clone();
+        let stdout_done_clone = Arc::clone(&stdout_done);
         std::thread::spawn(move || {
             use std::io::BufRead;
             for line in std::io::BufReader::new(stdout).lines() {
@@ -187,6 +192,7 @@ async fn spawn_pipes(
                     Err(_) => break,
                 }
             }
+            stdout_done_clone.store(true, Ordering::Release);
         });
     }
 
@@ -194,6 +200,7 @@ async fn spawn_pipes(
     {
         let id_clone = id.clone();
         let app_clone = app.clone();
+        let stderr_done_clone = Arc::clone(&stderr_done);
         std::thread::spawn(move || {
             use std::io::BufRead;
             for line in std::io::BufReader::new(stderr).lines() {
@@ -202,6 +209,7 @@ async fn spawn_pipes(
                     Err(_) => break,
                 }
             }
+            stderr_done_clone.store(true, Ordering::Release);
         });
     }
 
@@ -226,6 +234,16 @@ async fn spawn_pipes(
                     } else { break }
                 };
                 if let Some(code) = result {
+                    // Wait for both reader threads to finish flushing output
+                    // before emitting the exit event so the frontend receives
+                    // all output lines before the exit signal.
+                    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(500);
+                    while (!stdout_done.load(Ordering::Acquire) || !stderr_done.load(Ordering::Acquire))
+                        && std::time::Instant::now() < deadline
+                    {
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                    }
+
                     if let Ok(mut map) = registry_clone.lock() { map.remove(&id_clone); }
                     let _ = app_clone.emit("process-exit", ProcessExitPayload { id: id_clone, code });
                     break;
