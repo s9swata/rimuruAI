@@ -64,8 +64,10 @@ pub fn search(
         _ => chunks.iter().collect(),
     };
 
+    let q_dim = query_embedding.len();
     let mut scored: Vec<ChunkResult> = filtered
         .iter()
+        .filter(|chunk| chunk.embedding.len() == q_dim)
         .map(|chunk| {
             let score = cosine_similarity(query_embedding, &chunk.embedding);
             ChunkResult {

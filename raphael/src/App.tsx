@@ -113,6 +113,7 @@ export default function App() {
   const approvalResolveRef = useRef<((ok: boolean) => void) | null>(null);
   const submittingRef = useRef(false);
   const hasDocumentsRef = useRef(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const { state, dispatch: chatDispatch } = useChatStore();
   const loadFromGist = useCalendarStore((s) => s.loadFromGist);
   const registryRef = useRef<ToolRegistry | null>(null);
@@ -219,8 +220,8 @@ loadConfig()
               : JSON.stringify(memResult.data);
             setStartupMemory(memStr.slice(0, 2000));
           }
-        } catch {
-          // memory unavailable — not fatal
+        } catch (memErr) {
+          console.warn("[App] Startup memory unavailable:", String(memErr));
         }
       })
       .catch((e) => console.error("Failed to init registry:", e));
@@ -234,9 +235,16 @@ loadConfig()
     .filter((i) => i.type === "message" && !((i.data as { content: string }).content.startsWith("Error:")))
     .map((i) => ({ role: (i.data as { role: string }).role as "user" | "assistant", content: (i.data as { content: string }).content }));
 
+  const handleCancel = useCallback(() => {
+    abortControllerRef.current?.abort();
+  }, []);
+
   const handleSubmit = useCallback(async (text: string, attachments?: FileAttachment[], research?: boolean) => {
     if (submittingRef.current) return;
     submittingRef.current = true;
+    const ac = new AbortController();
+    abortControllerRef.current = ac;
+    const signal = ac.signal;
     console.log("[App] handleSubmit called, attachments:", attachments?.length, "research:", !!research);
     const userMsgId = crypto.randomUUID();
     chatDispatch({ type: "ADD_MESSAGE", msg: { id: userMsgId, role: "user", content: text } });
@@ -244,6 +252,7 @@ loadConfig()
 
     try {
       if (!registryRef.current) {
+        submittingRef.current = false;
         const errId = crypto.randomUUID();
         chatDispatch({ type: "ADD_MESSAGE", msg: { id: errId, role: "assistant", content: "Still initializing — please try again in a moment." } });
         setThinking(false);
@@ -254,7 +263,8 @@ loadConfig()
       // Groq Compound runs the agentic loop server-side with built-in
       // web_search / visit_website / browser_automation tools.
       if (research) {
-        const combinedProfileR = [profileContent, startupMemory].filter(Boolean).join("\n\n---\n\n");
+        const freshProfileR = await invoke<string>("load_profile").catch(() => profileContent);
+        const combinedProfileR = [freshProfileR, startupMemory].filter(Boolean).join("\n\n---\n\n");
         const compoundCardId = crypto.randomUUID();
         const replyId = crypto.randomUUID();
         chatDispatch({
@@ -275,6 +285,7 @@ loadConfig()
             ],
             {
               model: GROQ_COMPOUND_MODELS.full,
+              signal,
               onChunk: (chunk) => chatDispatch({ type: "APPEND_STREAM", id: replyId, chunk }),
               onDone: () => chatDispatch({ type: "FINISH_STREAM", id: replyId }),
               onExecutedTools: (steps) => {
@@ -306,6 +317,7 @@ loadConfig()
                 config.rateLimitConfig,
                 config.modelSelection,
                 "powerful",
+                signal,
               );
             } catch (synthErr) {
               console.error("[App] synthesis fallback failed:", synthErr);
@@ -340,15 +352,20 @@ loadConfig()
       const MAX_TOOL_ITERS = 3;
       // Read tools may need a follow-up action (e.g. search → draft email).
       // Write/mutation tools are terminal — no point re-orchestrating after them.
+      // files.queryDocument is intentionally excluded: doc content IS the answer,
+      // re-orchestrating after it mixes file context with unrelated tool results.
       const READ_TOOLS = new Set([
         "search.query", "gmail.listEmails", "gmail.readEmail",
         "calendar.listEvents", "calendar.checkAvailability",
         "memory.query", "files.searchFiles", "files.readFile",
-        "files.queryDocument", "resources.find", "resources.listManifests",
+        "resources.find", "resources.listManifests",
         "x.getTimeline", "x.getMentions", "x.searchTweets",
       ]);
       let toolContext = "";
-      const combinedProfile = [profileContent, startupMemory].filter(Boolean).join("\n\n---\n\n");
+      // Load profile fresh from disk each submit — avoids stale closure value
+      // and catches any writes made by memory.saveProfile earlier in the session.
+      const freshProfile = await invoke<string>("load_profile").catch(() => profileContent);
+      const combinedProfile = [freshProfile, startupMemory].filter(Boolean).join("\n\n---\n\n");
 
       // Handle file attachments - analyze them first
       let fileAnalysisContext = "";
@@ -378,6 +395,7 @@ loadConfig()
               fileData: base64,
               fileName,
               mimeType,
+              _signal: signal,
             });
 
             setPendingAttachments(prev => prev - 1);
@@ -409,6 +427,9 @@ loadConfig()
       // Slash command fast-path
       const slashCmd = parseSlashCommand(text);
       const justUploadedFiles = fileAnalysisContext.includes("chunks are searchable");
+      // Only pass file analysis context to orchestrator when files were successfully indexed.
+      // Error messages from failed uploads must NOT be forwarded — they confuse routing.
+      const successFileContext = justUploadedFiles ? fileAnalysisContext : undefined;
       const hasStoredDocs = hasDocumentsRef.current;
       let lastPlan = slashCmd
         ? { model: "fast" as const, tool: slashCmd.tool, params: slashCmd.params, intent: `slash: ${slashCmd.tool}` }
@@ -422,7 +443,7 @@ loadConfig()
             registryRef.current,
             hasStoredDocs
               ? `Previously uploaded documents are searchable via files.queryDocument. Use it only if the user is asking about a document.`
-              : (fileAnalysisContext || undefined),
+              : successFileContext,
             config.providerPriority,
             config.rateLimitConfig,
             config.modelSelection,
@@ -484,6 +505,14 @@ loadConfig()
             if (planTool === "memory.saveProfile") {
               invoke<string>("load_profile").then(setProfileContent).catch(console.error);
             }
+            if (planTool === "memory.store" || planTool === "memory.saveProfile") {
+              registryRef.current?.execute("memory.query", { query: "recent context" }).then((r) => {
+                if (r.success && r.data) {
+                  const s = typeof r.data === "string" ? r.data : JSON.stringify(r.data);
+                  setStartupMemory(s.slice(0, 2000));
+                }
+              }).catch(() => {});
+            }
           } else {
             chatDispatch({ type: "UPDATE_TOOL", id: cardId, status: "error", result: result.error });
             iterContext = `TOOL_FAILED: ${planTool}\nError: ${result.error}\nDo not retry the same tool with the same params. Either try a different approach or set tool: null and explain the error to the user.`;
@@ -533,6 +562,7 @@ loadConfig()
           config.rateLimitConfig,
           config.modelSelection,
           lastPlan.model,
+          signal,
         );
       } catch (streamErr) {
         // Remove the empty streaming bubble and show a real error message
@@ -540,9 +570,12 @@ loadConfig()
         throw streamErr;
       }
     } catch (e) {
-      console.error("Chat error:", e);
-      const errId = crypto.randomUUID();
-      chatDispatch({ type: "ADD_MESSAGE", msg: { id: errId, role: "assistant", content: `Error: ${String(e)}` } });
+      const isAbort = e instanceof Error && (e.name === "AbortError" || e.message.includes("aborted"));
+      if (!isAbort) {
+        console.error("Chat error:", e);
+        const errId = crypto.randomUUID();
+        chatDispatch({ type: "ADD_MESSAGE", msg: { id: errId, role: "assistant", content: `Error: ${String(e)}` } });
+      }
     } finally {
       setThinking(false);
       submittingRef.current = false;
@@ -599,8 +632,9 @@ if (ready === null) return null;
         }}
         onEmailDiscard={(id) => chatDispatch({ type: "REMOVE", id })}
       />
-      <InputBar 
-        onSubmit={handleSubmit} 
+      <InputBar
+        onSubmit={handleSubmit}
+        onCancel={handleCancel}
         disabled={thinking}
         pendingAttachments={pendingAttachments}
       />
@@ -619,14 +653,16 @@ if (ready === null) return null;
           tool={pendingApproval.tool}
           params={pendingApproval.params}
           onApprove={() => {
-            setPendingApproval(null);
-            approvalResolveRef.current?.(true);
+            const resolve = approvalResolveRef.current;
             approvalResolveRef.current = null;
+            setPendingApproval(null);
+            resolve?.(true);
           }}
           onDeny={() => {
-            setPendingApproval(null);
-            approvalResolveRef.current?.(false);
+            const resolve = approvalResolveRef.current;
             approvalResolveRef.current = null;
+            setPendingApproval(null);
+            resolve?.(false);
           }}
         />
       )}

@@ -30,6 +30,67 @@ function validateToolUrl(urlStr: string): string | null {
   return null;
 }
 
+type ValidationResult =
+  | { ok: true; coerced: Record<string, unknown> }
+  | { ok: false; error: string };
+
+/**
+ * Validate and coerce params against a tool's declared parameter schema.
+ *
+ * For each declared parameter (skipping keys that start with "_"):
+ *  - If the value is absent (undefined or null), return an error naming the missing param.
+ *  - If the value is present but the wrong JS type, coerce it to the declared type.
+ *
+ * Returns `{ ok: true, coerced }` on success or `{ ok: false, error }` on failure.
+ */
+function validateAndCoerceParams(def: ToolDefinition, params: Record<string, unknown>): ValidationResult {
+  const coerced: Record<string, unknown> = { ...params };
+
+  for (const [key, schema] of Object.entries(def.parameters)) {
+    // Skip internal transport params (e.g. _signal)
+    if (key.startsWith("_")) continue;
+
+    const value = params[key];
+
+    // Missing param — return descriptive error
+    if (value === undefined || value === null) {
+      return {
+        ok: false,
+        error: `Tool "${def.name}" is missing required parameter: "${key}" (expected ${schema.type})`,
+      };
+    }
+
+    // Coerce to declared type if necessary
+    switch (schema.type) {
+      case "string":
+        if (typeof value !== "string") {
+          coerced[key] = String(value);
+        }
+        break;
+      case "number": {
+        if (typeof value !== "number") {
+          const n = Number(value);
+          if (isNaN(n)) {
+            return {
+              ok: false,
+              error: `Tool "${def.name}" parameter "${key}" could not be coerced to number: ${JSON.stringify(value)}`,
+            };
+          }
+          coerced[key] = n;
+        }
+        break;
+      }
+      case "boolean":
+        if (typeof value !== "boolean") {
+          coerced[key] = Boolean(value);
+        }
+        break;
+    }
+  }
+
+  return { ok: true, coerced };
+}
+
 export class ToolRegistry {
   private defs = new Map<string, ToolDefinition>();
   private impls = new Map<string, ToolImpl>();
@@ -66,7 +127,8 @@ export class ToolRegistry {
    * Each tool gets one line with name, description, and parameter list.
    */
   toPromptString(): string {
-    return this.list()
+    if (this._promptCache) return this._promptCache;
+    this._promptCache = this.list()
       .map((def) => {
         const paramEntries = Object.entries(def.parameters);
         if (paramEntries.length === 0) {
@@ -78,6 +140,7 @@ export class ToolRegistry {
         return `${def.name}(${paramStr}): ${def.description}`;
       })
       .join("\n");
+    return this._promptCache;
   }
 
   /**
@@ -90,20 +153,26 @@ export class ToolRegistry {
       return { success: false, error: `Unknown tool: ${name}` };
     }
 
+    const validation = validateAndCoerceParams(def, params);
+    if (!validation.ok) {
+      return { success: false, error: validation.error };
+    }
+    const coerced = validation.coerced;
+
     if (def.type === "builtin") {
       const impl = this.impls.get(name);
       if (!impl) {
         return { success: false, error: `Builtin tool "${name}" has no implementation registered` };
       }
       try {
-        return await impl(params);
+        return await impl(coerced);
       } catch (e) {
         return { success: false, error: String(e) };
       }
     }
 
     if (def.type === "http") {
-      return this.executeHttp(def, params);
+      return this.executeHttp(def, coerced);
     }
 
     return { success: false, error: `Unsupported tool type: "${def.type}"` };
@@ -112,19 +181,49 @@ export class ToolRegistry {
   private async executeHttp(def: ToolDefinition, params: Record<string, unknown>): Promise<ToolResult> {
     try {
       const isGet = def.method === "GET";
+
+      // For GET requests, append non-empty params as query string.
+      let url = def.url ?? "";
+      if (isGet && params && Object.keys(params).length > 0) {
+        const qs = new URLSearchParams(
+          Object.fromEntries(
+            Object.entries(params).map(([k, v]) => [k, String(v)])
+          )
+        ).toString();
+        url = url.includes("?") ? `${url}&${qs}` : `${url}?${qs}`;
+      }
+
       const body = isGet ? undefined : JSON.stringify(params);
-      
+
       const data = await invoke<unknown>("http_fetch", {
         params: {
-          url: def.url,
+          url,
           method: def.method ?? "POST",
-          body: body,
+          body,
         },
       });
-      
+
+      // Guard: if the response is a raw HTML string, reject it rather than
+      // forwarding it to the LLM as structured data.
+      if (typeof data === "string" && data.trimStart().startsWith("<")) {
+        return {
+          success: false,
+          error: "HTTP tool returned HTML instead of JSON — endpoint may be down or redirecting",
+        };
+      }
+
       return { success: true, data };
     } catch (e) {
-      return { success: false, error: `HTTP tool error: ${String(e)}` };
+      // Parse the error string produced by the Rust http_fetch command to give
+      // a clearer diagnostic message.
+      const msg = String(e);
+      if (msg.startsWith("HTTP 4")) {
+        return { success: false, error: `HTTP client error: ${msg}` };
+      }
+      if (msg.startsWith("HTTP 5")) {
+        return { success: false, error: `HTTP server error: ${msg}` };
+      }
+      return { success: false, error: `HTTP network/parse error: ${msg}` };
     }
   }
 

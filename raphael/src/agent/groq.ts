@@ -17,6 +17,7 @@ export async function streamChat(
   rateLimitConfig?: Record<BuiltInProvider, { maxTokensPerDay: number; warnThreshold: number }>,
   modelSelection?: { orchestrator: ModelSelection; fast: ModelSelection; powerful: ModelSelection },
   tier: "fast" | "powerful" = "fast",
+  signal?: AbortSignal,
 ): Promise<void> {
   console.log("[streamChat] model:", model, "tier:", tier);
 
@@ -79,8 +80,9 @@ export async function streamChat(
         model: modelInstance,
         messages,
         temperature: 0.7,
+        abortSignal: signal,
       });
-      
+
       textStream = result.textStream;
       break;
     } catch (e) {
@@ -101,6 +103,7 @@ export async function streamChat(
         model: provider(model || "llama-3.1-8b-instant"),
         messages,
         temperature: 0.7,
+        abortSignal: signal,
       });
       textStream = result.textStream;
     } catch (e) {

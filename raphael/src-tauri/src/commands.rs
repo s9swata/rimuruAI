@@ -434,7 +434,13 @@ pub fn save_temp_file(file_name: String, data: String) -> Result<String, String>
     
     std::fs::create_dir_all(&temp_dir).map_err(|e| e.to_string())?;
     
-    let file_path = temp_dir.join(&file_name);
+    // Strip directory components and limit length to prevent path traversal
+    let safe_name = std::path::Path::new(&file_name)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("upload");
+    let safe_name: String = safe_name.chars().take(200).collect();
+    let file_path = temp_dir.join(&safe_name);
     let decoded = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &data)
         .map_err(|e| format!("Failed to decode base64: {}", e))?;
     
@@ -739,6 +745,9 @@ pub fn search_chunks(
     file_names: Option<Vec<String>>,
 ) -> Result<Vec<chunk_store::ChunkResult>, String> {
     log_to_file(&format!("[search_chunks] top_k={}", top_k));
+    if top_k == 0 {
+        return Ok(vec![]);
+    }
     let dir = store_dir();
     let chunks = chunk_store::load_chunks(&dir);
     let results = chunk_store::search(&query_embedding, &chunks, top_k, file_names.as_deref());

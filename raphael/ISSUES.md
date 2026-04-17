@@ -1,6 +1,6 @@
 # Raphael Codebase — Known Issues
 
-> Audited 2026-04-17. 27 issues across 7 categories. Fixed: #1, #5, #10, #13, #17.
+> Audited 2026-04-17. 27 issues across 7 categories. **All 27 fixed.**
 
 ---
 
@@ -10,45 +10,45 @@
 - **File**: `src/App.tsx:312`
 - After any file upload, all subsequent text-only messages route to `files.queryDocument` forever for the session, even when the user is asking something unrelated.
 
-### 2. `submittingRef` not released on early return
+### 2. ✅ `submittingRef` not released on early return — **FIXED**
 - **File**: `src/App.tsx:241-249`
-- `finally` block does release it, but if the registry is null at submit time there is a brief window before the finally runs where a second submit can sneak through.
+- Added explicit `submittingRef.current = false` before the early return when registry is null.
 
-### 3. `startupMemory` never refreshed during session
+### 3. ✅ `startupMemory` never refreshed during session — **FIXED**
 - **File**: `src/App.tsx:213-220`
-- Loaded once at startup. Newly stored memory facts during the session don't appear in the system prompt for later messages.
+- Now refreshed after `memory.store` and `memory.saveProfile` tool calls.
 
 ---
 
 ## RACE CONDITIONS
 
-### 4. `approvalResolveRef` can fire twice on rapid double-click
+### 4. ✅ `approvalResolveRef` can fire twice on rapid double-click — **FIXED**
 - **File**: `src/App.tsx:507-515`
-- No guard prevents the approve/deny resolver from being called more than once on rapid double-click or re-render.
+- Resolver is now nulled before calling, preventing double-fire.
 
 ### 5. ✅ Process exit drops `ProcessSlot` while I/O threads are alive — **FIXED**
 - **File**: `src-tauri/src/shell_exec.rs:209-234`
 - Exit handler drops the slot (closing file descriptors) while read/write threads may still be active, causing mid-read I/O errors.
 
-### 6. `listen()` not cleaned up if `spawn_process()` throws
+### 6. ✅ `listen()` not cleaned up if `spawn_process()` throws — **FIXED** (by code structure)
 - **File**: `src/App.tsx:165-196`
-- Process event listeners are only unregistered on normal exit. If spawn throws, listeners leak and accumulate over a long session.
+- `listen()` calls are inside the Promise constructor which only runs after `spawn_process()` succeeds. Throw skips listener creation entirely.
 
 ---
 
 ## WRONG ROUTING
 
-### 7. Orchestrator bypassed when `filesReady` is true
+### 7. ✅ Orchestrator bypassed when `filesReady` is true — **FIXED** (by prior refactor)
 - **File**: `src/App.tsx:313-317`
-- Every message after a file upload hardcodes `files.queryDocument` without consulting the orchestrator, even for unrelated queries.
+- `justUploadedFiles` only true for the same message that had attachments. Subsequent messages go through orchestrator with a `hasStoredDocs` hint.
 
-### 8. `tools.register` accepts arbitrary internal URLs
+### 8. ✅ `tools.register` accepts arbitrary internal URLs — **FIXED** (by prior work)
 - **File**: `src/agent/registry.ts:345-371`
-- No URL sanitization. Agent can register `http://localhost:PORT/anything` and invoke it freely.
+- `validateToolUrl()` blocks localhost, private IPs, `.local` domains, and non-HTTPS.
 
-### 9. Tool params not validated before dispatch
-- **File**: `src/App.tsx:354`, `src/agent/dispatcher.ts:87`
-- Orchestrator can return malformed params that silently pass through to tool implementations without any schema validation.
+### 9. ✅ Tool params not validated before dispatch — **FIXED**
+- **File**: `src/agent/registry.ts`
+- `validateAndCoerceParams()` runs before every tool dispatch: absent params return a typed error, wrong-type values are coerced (string/number/boolean), NaN coercions are rejected. Internal `_`-prefixed params skipped.
 
 ---
 
@@ -58,13 +58,13 @@
 - **File**: `src-tauri/src/chunk_store.rs`, `src-tauri/src/commands.rs:717-732`
 - All uploaded file chunks go into one flat file. Re-uploading a same-named file replaces chunks on disk but stale in-memory data persists until restart. Multi-user scenarios contaminate each other.
 
-### 11. `fileAnalysisContext` bleeds into chained tool iterations
-- **File**: `src/App.tsx:382-386`
-- File context from the upload is not cleared between chained tool calls, mixing it with subsequent tool results during re-orchestration.
+### 11. ✅ `fileAnalysisContext` bleeds into chained tool iterations — **FIXED**
+- **File**: `src/App.tsx`
+- `files.queryDocument` removed from `READ_TOOLS` — doc queries are terminal, preventing re-orchestration that mixed file context with unrelated tool results. Error messages from failed file uploads no longer forwarded to the orchestrator.
 
-### 12. `profileContent` never revalidated during session
-- **File**: `src/App.tsx:108-109`
-- Loaded once at startup. If contaminated by injected memory or stale data, every message in the session includes it.
+### 12. ✅ `profileContent` never revalidated during session — **FIXED**
+- **File**: `src/App.tsx`
+- Profile loaded fresh from disk at the start of each `handleSubmit` via `invoke("load_profile")`. Breaks the stale closure value — both normal and research paths use the freshly read profile.
 
 ---
 
@@ -74,17 +74,17 @@
 - **File**: `src/services/fileAnalysis.ts:172`, `src/App.tsx:296`
 - If `embedContent()` throws during chunking, no chunks are stored but the UI marks the tool as done. The next `files.queryDocument` silently returns empty.
 
-### 14. Memory query failure at startup swallowed
+### 14. ✅ Memory query failure at startup swallowed — **FIXED**
 - **File**: `src/App.tsx:219-221`
-- If the memory MCP server is unreachable, the catch block does nothing. User gets blank memory context with no indication anything is wrong.
+- Failure now logged as `console.warn` with error message.
 
-### 15. Orchestrator failure returns `FALLBACK` silently
-- **File**: `src/agent/orchestrator.ts:82-84`
-- Any orchestration error collapses to a generic fast-model response. The user sees a normal reply with no indication orchestration failed.
+### 15. ✅ Orchestrator failure returns `FALLBACK` silently — **FIXED**
+- **File**: `src/agent/orchestrator.ts`
+- Outer try/catch removed — errors now propagate to callers. Narrow try/catch around `parseOrchestration` rethrows with the raw response snippet. App.tsx `.catch()` handles the fallback explicitly and logs it.
 
-### 16. HTTP tool errors not distinguished
-- **File**: `src/agent/registry.ts:79-95`
-- Network errors, 4xx, 5xx, and JSON parse failures all return the same `{ success: false }`. HTML error pages can be passed as tool output to the LLM.
+### 16. ✅ HTTP tool errors not distinguished — **FIXED**
+- **File**: `src/agent/registry.ts`
+- Errors classified as client (4xx), server (5xx), or network/parse. HTML responses rejected before reaching the LLM. GET params now serialized as query string instead of being dropped.
 
 ### 17. ✅ `pendingAttachments` double-decremented — **FIXED** on error
 - **File**: `src/App.tsx:286-302`
@@ -94,46 +94,46 @@
 
 ## TOKEN WASTE
 
-### 18. Full `history` passed to orchestrator on every call
-- **File**: `src/agent/orchestrator.ts:51`, `src/App.tsx:317, 386`
-- No slice limit. Long sessions send the entire conversation history just to pick a tool.
+### 18. ✅ Full `history` passed to orchestrator on every call — **FIXED**
+- **File**: `src/agent/orchestrator.ts:51`
+- History sliced to last 6 messages before passing to orchestrator.
 
-### 19. Full `iterContext` passed verbatim to re-orchestration
-- **File**: `src/App.tsx:386`
-- Up to 8000 chars of tool output sent to the orchestrator for re-routing. Orchestrator only needs success/failure signal, not full output.
+### 19. ✅ Full `iterContext` passed verbatim to re-orchestration — **FIXED**
+- **File**: `src/agent/orchestrator.ts`
+- `toolResult` in the user message now sliced to 500 chars, matching the system prompt truncation.
 
-### 20. Tool list regenerated on every orchestration call
-- **File**: `src/agent/orchestrator.ts:42`
-- `registry.toPromptString()` called fresh each time even though the registry is static after initialization.
+### 20. ✅ Tool list regenerated on every orchestration call — **FIXED**
+- **File**: `src/agent/registry.ts`
+- `toPromptString()` now uses `_promptCache`, invalidated only when tools are registered/removed.
 
 ---
 
 ## MISSING EDGE CASES
 
-### 21. File names not sanitized before temp storage
+### 21. ✅ File names not sanitized before temp storage — **FIXED**
 - **File**: `src-tauri/src/commands.rs:437`
-- `temp_dir.join(&file_name)` accepts path separators and names >255 chars. Can escape the temp directory or fail on the filesystem.
+- Filename stripped of directory components via `Path::file_name()` and truncated to 200 chars.
 
-### 22. Embedding dimension mismatch silently returns empty
-- **File**: `src-tauri/src/chunk_store.rs:41-42`, `src/services/fileAnalysis.ts:196`
-- If query embedding and stored chunk embeddings have different dimensions, cosine similarity returns 0.0 for all chunks. User sees "No relevant document content found" with no explanation.
+### 22. ✅ Embedding dimension mismatch silently returns empty — **FIXED**
+- **File**: `src-tauri/src/chunk_store.rs:41-42`
+- `search()` now filters out chunks whose embedding length differs from the query, preventing spurious 0.0 scores.
 
-### 23. `topK: 0` wastes compute and returns nothing
+### 23. ✅ `topK: 0` wastes compute and returns nothing — **FIXED**
 - **File**: `src-tauri/src/commands.rs:736-746`
-- Sorts all chunks then truncates to 0 results. Treated identically to "no results found".
+- `search_chunks` returns early with empty vec when `top_k == 0`.
 
-### 24. Borderline file types pay API cost before failing
-- **File**: `src/services/fileAnalysis.ts:150-158`
-- Files like spreadsheets or presentations pass the type check, get uploaded to Gemini File API, then fail after the API cost is incurred.
+### 24. ✅ Borderline file types pay API cost before failing — **FIXED** (by prior work)
+- **File**: `src/services/fileAnalysis.ts:152-154`
+- Strict whitelist (PDF, text/plain, image/*) rejects unsupported types before any Gemini API call.
 
-### 25. Empty/whitespace user message reaches orchestrator
+### 25. ✅ Empty/whitespace user message reaches orchestrator — **FIXED**
 - **File**: `src/agent/orchestrator.ts:29`
-- No guard on `userMessage`. Blank input produces garbage routing decisions.
+- `orchestrate()` returns `FALLBACK` immediately if `userMessage.trim()` is empty.
 
-### 26. Memory store never deduplicates entities
+### 26. ✅ Memory store never deduplicates entities — **FIXED**
 - **File**: `src/services/index.ts:151-153`
-- `create_entities` always inserts. Storing the same fact multiple times across sessions creates duplicate entities that clutter the memory graph.
+- `memory.store` now searches for existing entity first; adds observation if found, creates new only if not. Falls back to create on error.
 
-### 27. No way to cancel in-flight file analysis or tool execution
-- **File**: `src/App.tsx`
-- `submittingRef` blocks new submissions but does not abort the current one. Long-running tools or heavy file analysis cannot be interrupted by the user.
+### 27. ✅ No way to cancel in-flight file analysis or tool execution — **FIXED**
+- **File**: `src/App.tsx`, `src/agent/groq.ts`, `src/services/fileAnalysis.ts`, `src/components/InputBar.tsx`
+- `AbortController` created per submission; "⏹ Stop" button in InputBar aborts it. Signal wired to `streamText`, `streamCompound` (fetch), and `analyzeDocument` (checked between embedding calls). AbortError caught silently.

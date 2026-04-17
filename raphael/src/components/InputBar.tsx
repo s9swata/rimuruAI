@@ -6,12 +6,13 @@ const SLASH_COMMANDS = ["/email", "/calendar", "/files", "/memory"];
 
 interface Props {
   onSubmit: (text: string, files?: FileAttachment[], research?: boolean) => void;
+  onCancel?: () => void;
   disabled?: boolean;
   onFilesSelected?: (files: File[]) => void;
   pendingAttachments?: number;
 }
 
-export default function InputBar({ onSubmit, disabled, onFilesSelected, pendingAttachments = 0 }: Props) {
+export default function InputBar({ onSubmit, onCancel, disabled, onFilesSelected, pendingAttachments = 0 }: Props) {
   const [value, setValue] = useState("");
   const [hint, setHint] = useState<string | null>(null);
   const [showFileUpload, setShowFileUpload] = useState(false);
@@ -96,6 +97,25 @@ export default function InputBar({ onSubmit, disabled, onFilesSelected, pendingA
         </div>
       )}
       <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+        {disabled && onCancel && (
+          <button
+            onClick={onCancel}
+            title="Stop generation"
+            style={{
+              background: "none",
+              border: "1px solid var(--accent-dim)",
+              color: "var(--accent)",
+              cursor: "pointer",
+              fontSize: 11,
+              padding: "4px 8px",
+              borderRadius: "var(--radius)",
+              alignSelf: "center",
+              fontFamily: "var(--font-mono)",
+            }}
+          >
+            ⏹ Stop
+          </button>
+        )}
         <button
           onClick={() => setShowFileUpload(!showFileUpload)}
           disabled={disabled}

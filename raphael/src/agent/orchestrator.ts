@@ -37,6 +37,8 @@ export async function orchestrate(
   rateLimitConfig?: Record<BuiltInProvider, { maxTokensPerDay: number; warnThreshold: number }>,
   modelSelection?: { orchestrator: ModelSelection; fast: ModelSelection; powerful: ModelSelection },
 ): Promise<OrchestratorResult> {
+  if (!userMessage.trim()) return FALLBACK;
+
   console.log("[Orchestrator] Starting orchestration...");
 
   const toolList = registry.toPromptString();
@@ -47,7 +49,7 @@ export async function orchestrate(
 
   const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
     { role: "system", content: systemPrompt },
-    ...history.map((h) => ({ role: h.role as "user" | "assistant", content: h.content })),
+    ...history.slice(-6).map((h) => ({ role: h.role as "user" | "assistant", content: h.content })),
     { role: "user", content: userMessage },
   ];
 
@@ -57,30 +59,30 @@ export async function orchestrate(
       : "Previous tool result:";
     messages.push({
       role: "user",
-      content: `${toolResultLabel}\n${toolResult}\n\nBased on this result, what should I do next? Return JSON routing decision.`,
+      content: `${toolResultLabel}\n${toolResult.slice(0, 500)}\n\nBased on this result, what should I do next? Return JSON routing decision.`,
     });
   }
 
+  // Default priority if not provided
+  const priority = providerPriority || [
+    { provider: "groq", priority: 1, enabled: true },
+    { provider: "cerebras", priority: 2, enabled: true },
+    { provider: "openrouter", priority: 3, enabled: true },
+    { provider: "anthropic", priority: 4, enabled: true },
+  ];
+
+  console.log("[Orchestrator] Calling generateText with fallback...");
+
+  const result = await generateTextWithFallback(messages, "orchestrator", priority, rateLimitConfig, modelSelection);
+
+  console.log("[Orchestrator] Raw response:", result.text, "finishReason:", result.finishReason, "provider:", result.provider, "model:", result.model);
+
+  let parsed: OrchestratorResult;
   try {
-    // Default priority if not provided
-    const priority = providerPriority || [
-      { provider: "groq", priority: 1, enabled: true },
-      { provider: "cerebras", priority: 2, enabled: true },
-      { provider: "openrouter", priority: 3, enabled: true },
-      { provider: "anthropic", priority: 4, enabled: true },
-    ];
-
-    console.log("[Orchestrator] Calling generateText with fallback...");
-
-    const result = await generateTextWithFallback(messages, "orchestrator", priority, rateLimitConfig, modelSelection);
-
-    console.log("[Orchestrator] Raw response:", result.text, "finishReason:", result.finishReason, "provider:", result.provider, "model:", result.model);
-
-    const parsed = parseOrchestration(result.text);
-    console.log("[Orchestrator] Parsed result:", parsed);
-    return parsed;
-  } catch (e) {
-    console.error("[Orchestrator] Error:", String(e));
-    return FALLBACK;
+    parsed = parseOrchestration(result.text);
+  } catch {
+    throw new Error(`Orchestrator returned unparseable response: ${result.text.slice(0, 200)}`);
   }
+  console.log("[Orchestrator] Parsed result:", parsed);
+  return parsed;
 }

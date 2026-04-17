@@ -76,7 +76,7 @@ export async function createServices(): Promise<ServiceMap> {
         }
       },
       analyzeDocument: async (p) => {
-        const params = p as { fileData?: string; fileName?: string; mimeType?: string };
+        const params = p as { fileData?: string; fileName?: string; mimeType?: string; _signal?: AbortSignal };
         try {
           if (!params.fileData || !params.fileName) {
             return { success: false, error: "Missing fileData or fileName" };
@@ -89,7 +89,7 @@ export async function createServices(): Promise<ServiceMap> {
           const byteArray = new Uint8Array(byteNumbers);
           const blob = new Blob([byteArray], { type: params.mimeType });
           const file = new File([blob], params.fileName, { type: params.mimeType });
-          const result = await analyzeDocument(file);
+          const result = await analyzeDocument(file, params._signal);
           return { success: true, data: result };
         } catch (e) {
           return { success: false, error: String(e) };
@@ -144,13 +144,29 @@ export async function createServices(): Promise<ServiceMap> {
         const params = p as { text?: string; entityName?: string; entityType?: string };
         if (!params.text) return { success: false, error: "Missing text param" };
         console.log(`[MemoryMCP] memory.store: "${params.text}"`);
-        // Create a generic entity + observation using server-memory's tools
         const name = params.entityName ?? `fact_${Date.now()}`;
         const type = params.entityType ?? "fact";
-        // Step 1: create or upsert entity
-        await callMemoryTool("create_entities", {
-          entities: [{ name, entityType: type, observations: [params.text] }],
-        });
+        // Check if entity already exists — add observation rather than duplicate
+        try {
+          const searchResult = await callMemoryTool("search_nodes", { query: name });
+          const exists = searchResult.success &&
+            Array.isArray(searchResult.data) &&
+            (searchResult.data as Array<{ name: string }>).some((e) => e.name === name);
+          if (exists) {
+            await callMemoryTool("add_observations", {
+              observations: [{ entityName: name, contents: [params.text] }],
+            });
+          } else {
+            await callMemoryTool("create_entities", {
+              entities: [{ name, entityType: type, observations: [params.text] }],
+            });
+          }
+        } catch {
+          // Fallback: always create (better than losing the fact)
+          await callMemoryTool("create_entities", {
+            entities: [{ name, entityType: type, observations: [params.text] }],
+          });
+        }
         return { success: true, data: { stored: true, entity: name } };
       },
     },

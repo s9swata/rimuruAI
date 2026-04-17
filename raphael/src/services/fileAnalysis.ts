@@ -139,7 +139,7 @@ function chunkText(text: string, chunkSize: number, overlap: number): string[] {
   return chunks;
 }
 
-export async function analyzeDocument(file: File): Promise<{
+export async function analyzeDocument(file: File, signal?: AbortSignal): Promise<{
   fileName: string;
   fileType: string;
   chunksStored?: number;
@@ -155,6 +155,8 @@ export async function analyzeDocument(file: File): Promise<{
   }
 
   try {
+    if (signal?.aborted) return { fileName, fileType, error: "Cancelled" };
+
     // 1. Extract text via Gemini Flash (accurate layout-aware extraction)
     console.log("[fileAnalysis] Extracting text with Gemini Flash...");
     const text = await extractTextWithGemini(file);
@@ -173,6 +175,9 @@ export async function analyzeDocument(file: File): Promise<{
     let embedErrors = 0;
 
     for (let i = 0; i < chunks.length; i++) {
+      if (signal?.aborted) {
+        return { fileName, fileType, error: "Cancelled" };
+      }
       try {
         const embedding = await embedContent(chunks[i]);
         embeddedChunks.push({ chunkIndex: i, text: chunks[i], embedding });
