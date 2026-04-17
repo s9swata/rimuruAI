@@ -6,7 +6,7 @@ import TOOLS_GUIDE from "./bootstrap/TOOLS.md?raw";
 
 export const GROQ_MODELS = {
   orchestrator: "openai/gpt-oss-120b",
-  fast: "llama-3.1-8b-instant",
+  fast: "llama-3.3-70b-versatile",
   powerful: "llama-3.3-70b-versatile",
 } as const;
 
@@ -119,10 +119,10 @@ export const PROVIDER_MODEL_OPTIONS: Record<BuiltInProvider, string[]> = {
     "groq/compound",
     "groq/compound-mini",
     "openai/gpt-oss-120b",
-    "llama-3.1-8b-instant",
     "llama-3.3-70b-versatile",
     "llama-3.2-90b-vision-instruct",
     "mixtral-8x7b-32768",
+    "llama-3.1-8b-instant",
     "llama-3.2-1b-instruct",
     "llama-3.2-8b-instruct",
   ],
@@ -171,11 +171,14 @@ export function buildSystemPrompt(
 
     const now = new Date();
     const todayStr = now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
     return `You are Raphael — an agent, not an assistant. Your job: analyze the user's message, then decide (1) which model tier to use and (2) which single tool to call, if any. Respond with ONLY valid JSON — no explanation, no markdown.
 
 Today's date: ${todayStr}
+User's timezone: ${timezone}
 When the user says "today", "tonight", "this week", "now", or any relative date, resolve it to the actual date above before constructing tool params.
+For location-based queries (weather, news, places), use the user's city from User Profile Context if set.
 
 Available tools:
 ${tools}
@@ -279,7 +282,7 @@ ${AGENTS}`;
     ? `\n\nUser Profile Context:\n${profileContext}`
     : "";
 
-  const todayLine = `\nToday's date: ${new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}`;
+  const todayLine = `\nToday's date: ${new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })} (${Intl.DateTimeFormat().resolvedOptions().timeZone})`;
 
   if (tier === "fast") {
     return `You are Raphael — a personal AI agent. ${toneLine} ${verbLine}${todayLine}${toolResultGuidance}${extendedProfile}`;
