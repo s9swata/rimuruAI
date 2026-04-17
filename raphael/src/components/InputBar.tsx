@@ -5,7 +5,7 @@ import { FileAttachmentList, type FileAttachment } from "./FileAttachmentList";
 const SLASH_COMMANDS = ["/email", "/calendar", "/files", "/memory"];
 
 interface Props {
-  onSubmit: (text: string, files?: FileAttachment[]) => void;
+  onSubmit: (text: string, files?: FileAttachment[], research?: boolean) => void;
   disabled?: boolean;
   onFilesSelected?: (files: File[]) => void;
   pendingAttachments?: number;
@@ -16,6 +16,7 @@ export default function InputBar({ onSubmit, disabled, onFilesSelected, pendingA
   const [hint, setHint] = useState<string | null>(null);
   const [showFileUpload, setShowFileUpload] = useState(false);
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
+  const [research, setResearch] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
 
   const isUploading = pendingAttachments > 0 || attachments.some(a => a.status === "uploading" || a.status === "pending");
@@ -54,7 +55,7 @@ export default function InputBar({ onSubmit, disabled, onFilesSelected, pendingA
       e.preventDefault();
       const trimmed = value.trim();
       if (trimmed && canSubmit) {
-        onSubmit(trimmed, attachments.length > 0 ? attachments : undefined);
+        onSubmit(trimmed, attachments.length > 0 ? attachments : undefined, research);
         setValue("");
         setHint(null);
         setAttachments([]);
@@ -129,6 +130,25 @@ export default function InputBar({ onSubmit, disabled, onFilesSelected, pendingA
             Analyzing file...
           </div>
         )}
+        <button
+          onClick={() => setResearch((v) => !v)}
+          disabled={disabled}
+          title={research ? "Research mode: ON (Groq Compound)" : "Research mode: OFF"}
+          style={{
+            background: research ? "var(--accent-dim)" : "none",
+            border: research ? "1px solid var(--accent)" : "1px solid transparent",
+            color: research ? "var(--accent)" : "var(--text-muted)",
+            cursor: disabled ? "not-allowed" : "pointer",
+            fontSize: 11,
+            padding: "4px 8px",
+            borderRadius: "var(--radius)",
+            opacity: disabled ? 0.5 : 1,
+            alignSelf: "center",
+            fontFamily: "var(--font-mono)",
+          }}
+        >
+          🔍 Research
+        </button>
         <textarea
           ref={ref}
           value={value}

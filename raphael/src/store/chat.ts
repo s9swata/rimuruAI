@@ -1,4 +1,5 @@
 import { useReducer } from "react";
+import type { ExecutedTool } from "../agent/compound";
 
 export type MessageRole = "user" | "assistant";
 
@@ -31,11 +32,20 @@ export interface ShellCardState {
   exitCode?: number;
 }
 
+export interface CompoundCardState {
+  id: string;
+  status: "running" | "done" | "error";
+  model: string;
+  steps: ExecutedTool[];
+  error?: string;
+}
+
 export type ChatItem =
   | { type: "message"; data: ChatMessage }
   | { type: "tool"; data: ToolCardState }
   | { type: "email"; data: EmailDraftState }
-  | { type: "shell"; data: ShellCardState };
+  | { type: "shell"; data: ShellCardState }
+  | { type: "compound"; data: CompoundCardState };
 
 interface ChatState {
   items: ChatItem[];
@@ -52,6 +62,8 @@ type ChatAction =
   | { type: "ADD_SHELL"; card: ShellCardState }
   | { type: "APPEND_SHELL_LINE"; id: string; line: string; isStderr: boolean }
   | { type: "FINISH_SHELL"; id: string; exitCode: number | null }
+  | { type: "ADD_COMPOUND"; card: CompoundCardState }
+  | { type: "FINISH_COMPOUND"; id: string; steps: ExecutedTool[]; error?: string }
   | { type: "REMOVE"; id: string };
 
 const ADD_MESSAGE = "ADD_MESSAGE";
@@ -64,6 +76,8 @@ const UPDATE_EMAIL = "UPDATE_EMAIL";
 const ADD_SHELL = "ADD_SHELL";
 const APPEND_SHELL_LINE = "APPEND_SHELL_LINE";
 const FINISH_SHELL = "FINISH_SHELL";
+const ADD_COMPOUND = "ADD_COMPOUND";
+const FINISH_COMPOUND = "FINISH_COMPOUND";
 const REMOVE = "REMOVE";
 
 function reducer(state: ChatState, action: ChatAction): ChatState {
@@ -124,6 +138,24 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
             : item
         ),
       };
+    case ADD_COMPOUND:
+      return { items: [...state.items, { type: "compound", data: action.card }] };
+    case FINISH_COMPOUND:
+      return {
+        items: state.items.map((item) =>
+          item.type === "compound" && item.data.id === action.id
+            ? {
+                ...item,
+                data: {
+                  ...item.data,
+                  status: action.error ? "error" : "done",
+                  steps: action.steps,
+                  error: action.error,
+                },
+              }
+            : item
+        ),
+      };
     case REMOVE:
       return { items: state.items.filter((i) => i.data.id !== action.id) };
     default:
@@ -147,5 +179,7 @@ export {
   ADD_SHELL,
   APPEND_SHELL_LINE,
   FINISH_SHELL,
+  ADD_COMPOUND,
+  FINISH_COMPOUND,
   REMOVE,
 };

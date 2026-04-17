@@ -4,6 +4,7 @@ import MessageBubble from "./MessageBubble";
 import ToolCard from "./ToolCard";
 import EmailComposer from "./EmailComposer";
 import ShellCard from "./ShellCard";
+import CompoundCard from "./CompoundCard";
 
 interface Props {
   items: ChatItem[];
@@ -42,6 +43,8 @@ export default function ChatArea({
           );
         if (item.type === "shell")
           return <ShellCard key={item.data.id} card={item.data} />;
+        if (item.type === "compound")
+          return <CompoundCard key={item.data.id} card={item.data} />;
         return null;
       })}
       <div ref={bottomRef} />

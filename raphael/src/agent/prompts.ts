@@ -46,6 +46,17 @@ export const NVIDIA_MODELS = {
   powerful: "nvidia/llama-3.1-nemotron-70b-instruct",
 } as const;
 
+export const GROQ_COMPOUND_MODELS = {
+  full: "groq/compound",
+  mini: "groq/compound-mini",
+} as const;
+
+export const DEFAULT_COMPOUND_TOOLS = [
+  "web_search",
+  "visit_website",
+  "browser_automation",
+];
+
 export type ModelTier = keyof typeof GROQ_MODELS;
 
 // Some Groq models require "openai/" prefix, others don't
@@ -58,8 +69,8 @@ export const GROQ_MODELS_WITH_PREFIX = new Set([
 ]);
 
 export function getGroqModelId(model: string): string {
-  // If model already starts with "openai/", use as-is
-  if (model.startsWith("openai/")) return model;
+  // Compound systems and other already-prefixed ids pass through unchanged
+  if (model.startsWith("openai/") || model.startsWith("groq/")) return model;
   // If it's a known model that needs prefix, add it
   if (GROQ_MODELS_WITH_PREFIX.has(`openai/${model}`)) {
     return `openai/${model}`;
@@ -102,6 +113,8 @@ export function getAllModelsForProvider(provider: BuiltInProvider): string[] {
 
 export const PROVIDER_MODEL_OPTIONS: Record<BuiltInProvider, string[]> = {
   groq: [
+    "groq/compound",
+    "groq/compound-mini",
     "openai/gpt-oss-120b",
     "llama-3.1-8b-instant",
     "llama-3.3-70b-versatile",

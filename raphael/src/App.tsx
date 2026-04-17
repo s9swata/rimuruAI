@@ -7,7 +7,7 @@ import InputBar from "./components/InputBar";
 import CalendarView from "./components/CalendarView";
 import SettingsPanel from "./components/SettingsPanel";
 import ApprovalDialog from "./components/ApprovalDialog";
-import { useChatStore, ADD_SHELL, APPEND_SHELL_LINE, FINISH_SHELL } from "./store/chat";
+import { useChatStore, ADD_SHELL, APPEND_SHELL_LINE, FINISH_SHELL, ADD_COMPOUND, FINISH_COMPOUND } from "./store/chat";
 import { useCalendarStore } from "./calendar/store";
 import { loadConfig } from "./config/loader";
 import { RaphaelConfig, DEFAULT_CONFIG } from "./config/types";
@@ -15,7 +15,8 @@ import { orchestrate } from "./agent/orchestrator";
 import { pickModel } from "./agent/router";
 import { dispatch, requiresApprovalCheck } from "./agent/dispatcher";
 import { streamChat } from "./agent/groq";
-import { buildSystemPrompt } from "./agent/prompts";
+import { buildSystemPrompt, GROQ_COMPOUND_MODELS } from "./agent/prompts";
+import { streamCompound } from "./agent/compound";
 import { createServices } from "./services";
 import { initRegistry, ToolRegistry, bootstrapResourceTools } from "./agent/registry";
 import type { FileAttachment } from "./components/FileAttachmentList";
@@ -233,10 +234,10 @@ loadConfig()
     .filter((i) => i.type === "message" && !((i.data as { content: string }).content.startsWith("Error:")))
     .map((i) => ({ role: (i.data as { role: string }).role as "user" | "assistant", content: (i.data as { content: string }).content }));
 
-  const handleSubmit = useCallback(async (text: string, attachments?: FileAttachment[]) => {
+  const handleSubmit = useCallback(async (text: string, attachments?: FileAttachment[], research?: boolean) => {
     if (submittingRef.current) return;
     submittingRef.current = true;
-    console.log("[App] handleSubmit called, attachments:", attachments?.length);
+    console.log("[App] handleSubmit called, attachments:", attachments?.length, "research:", !!research);
     const userMsgId = crypto.randomUUID();
     chatDispatch({ type: "ADD_MESSAGE", msg: { id: userMsgId, role: "user", content: text } });
     setThinking(true);
@@ -246,6 +247,47 @@ loadConfig()
         const errId = crypto.randomUUID();
         chatDispatch({ type: "ADD_MESSAGE", msg: { id: errId, role: "assistant", content: "Still initializing — please try again in a moment." } });
         setThinking(false);
+        return;
+      }
+
+      // Research mode → bypass orchestrator + tool dispatch.
+      // Groq Compound runs the agentic loop server-side with built-in
+      // web_search / visit_website / browser_automation tools.
+      if (research) {
+        const combinedProfileR = [profileContent, startupMemory].filter(Boolean).join("\n\n---\n\n");
+        const compoundCardId = crypto.randomUUID();
+        const replyId = crypto.randomUUID();
+        chatDispatch({
+          type: ADD_COMPOUND,
+          card: { id: compoundCardId, status: "running", model: GROQ_COMPOUND_MODELS.full, steps: [] },
+        });
+        chatDispatch({ type: "ADD_MESSAGE", msg: { id: replyId, role: "assistant", content: "", streaming: true } });
+
+        const systemPromptR = buildSystemPrompt("powerful", config.persona, combinedProfileR);
+        try {
+          const { executed_tools } = await streamCompound(
+            [
+              { role: "system", content: systemPromptR },
+              ...history.slice(-4),
+              { role: "user", content: text },
+            ],
+            {
+              model: GROQ_COMPOUND_MODELS.full,
+              onChunk: (chunk) => chatDispatch({ type: "APPEND_STREAM", id: replyId, chunk }),
+              onDone: () => chatDispatch({ type: "FINISH_STREAM", id: replyId }),
+            },
+          );
+          chatDispatch({ type: FINISH_COMPOUND, id: compoundCardId, steps: executed_tools });
+        } catch (e) {
+          console.error("Compound error:", e);
+          chatDispatch({ type: "REMOVE", id: replyId });
+          chatDispatch({ type: FINISH_COMPOUND, id: compoundCardId, steps: [], error: String(e) });
+          const errId = crypto.randomUUID();
+          chatDispatch({ type: "ADD_MESSAGE", msg: { id: errId, role: "assistant", content: `Research failed: ${String(e)}` } });
+        } finally {
+          setThinking(false);
+          submittingRef.current = false;
+        }
         return;
       }
 
