@@ -16,7 +16,7 @@ import { pickModel } from "./agent/router";
 import { dispatch, requiresApprovalCheck } from "./agent/dispatcher";
 import { streamChat } from "./agent/groq";
 import { buildSystemPrompt, GROQ_COMPOUND_MODELS } from "./agent/prompts";
-import { streamCompound } from "./agent/compound";
+import { streamCompound, executedToolsToContext } from "./agent/compound";
 import { createServices } from "./services";
 import { initRegistry, ToolRegistry, bootstrapResourceTools } from "./agent/registry";
 import type { FileAttachment } from "./components/FileAttachmentList";
@@ -284,14 +284,45 @@ loadConfig()
           );
           chatDispatch({ type: FINISH_COMPOUND, id: compoundCardId, steps: executed_tools });
           // Compound sometimes finishes the agentic loop without streaming a
-          // final assistant message (e.g. when tool output dominates the
-          // budget). Surface a graceful fallback so the user is not left with
-          // an empty bubble.
-          if (!replyText.trim()) {
-            const summary = executed_tools.length
-              ? `Compound ran ${executed_tools.length} tool call${executed_tools.length === 1 ? "" : "s"} but returned no final message. See the steps above for what was gathered.`
-              : `Compound returned no response. Try rephrasing or disabling Research mode.`;
-            chatDispatch({ type: "APPEND_STREAM", id: replyId, chunk: summary });
+          // final assistant message. When that happens but we DO have tool
+          // output, hand the gathered context to a normal model and stream a
+          // synthesized answer — that's the "summarize what you found" step
+          // compound was supposed to do itself.
+          if (!replyText.trim() && executed_tools.length > 0) {
+            console.log("[App] compound returned no text — running synthesis fallback");
+            const context = executedToolsToContext(executed_tools);
+            const synthSystem = `You are answering the user's question using ONLY the search results below. Cite sources inline as [1], [2], … matching the order of links provided. If the search results do not actually answer the question, say so plainly — do not invent facts.`;
+            const synthUser = `User's question: ${text}\n\nSearch results:\n${context.slice(0, 12000)}`;
+            try {
+              await streamChat(
+                pickModel("powerful"),
+                [
+                  { role: "system", content: synthSystem },
+                  { role: "user", content: synthUser },
+                ],
+                (chunk) => chatDispatch({ type: "APPEND_STREAM", id: replyId, chunk }),
+                () => chatDispatch({ type: "FINISH_STREAM", id: replyId }),
+                config.providerPriority,
+                config.rateLimitConfig,
+                config.modelSelection,
+                "powerful",
+              );
+            } catch (synthErr) {
+              console.error("[App] synthesis fallback failed:", synthErr);
+              chatDispatch({
+                type: "APPEND_STREAM",
+                id: replyId,
+                chunk: `Compound gathered ${executed_tools.length} result${executed_tools.length === 1 ? "" : "s"} but synthesis failed: ${String(synthErr)}`,
+              });
+              chatDispatch({ type: "FINISH_STREAM", id: replyId });
+            }
+          } else if (!replyText.trim()) {
+            chatDispatch({
+              type: "APPEND_STREAM",
+              id: replyId,
+              chunk: `Compound returned no response. Try rephrasing or disabling Research mode.`,
+            });
+            chatDispatch({ type: "FINISH_STREAM", id: replyId });
           }
         } catch (e) {
           console.error("Compound error:", e);

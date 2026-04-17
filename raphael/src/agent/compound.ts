@@ -54,6 +54,38 @@ async function getGroqApiKey(): Promise<string> {
 
 export const COMPOUND_MODELS = GROQ_COMPOUND_MODELS;
 
+/**
+ * Convert executed_tools into a plain-text context block suitable for handing
+ * to a non-compound model so it can write a final answer when compound itself
+ * fails to emit one.
+ */
+export function executedToolsToContext(tools: ExecutedTool[]): string {
+  const blocks: string[] = [];
+  for (const tool of tools) {
+    const args = typeof tool.arguments === "string"
+      ? tool.arguments
+      : tool.arguments
+        ? JSON.stringify(tool.arguments)
+        : "";
+    const lines: string[] = [`### ${tool.type} ${args}`.trim()];
+
+    const results = tool.search_results?.results;
+    if (Array.isArray(results) && results.length > 0) {
+      for (const r of results.slice(0, 8)) {
+        const title = r.title ?? "";
+        const url = r.url ?? "";
+        const content = (r.content ?? "").slice(0, 400);
+        lines.push(`- [${title}](${url})\n  ${content}`);
+      }
+    }
+    if (typeof tool.output === "string" && tool.output.trim()) {
+      lines.push(tool.output.slice(0, 1500));
+    }
+    blocks.push(lines.join("\n"));
+  }
+  return blocks.join("\n\n");
+}
+
 export async function streamCompound(
   messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
   options: CompoundOptions = {},
@@ -91,6 +123,9 @@ export async function streamCompound(
   const decoder = new TextDecoder();
   let buffer = "";
   let fullText = "";
+  let eventCount = 0;
+  let lastRawEvent = "";
+  let finishReason: string | null = null;
   // Merge tool entries by index across stream chunks. Streaming responses send
   // each step incrementally; replacing the array on every event drops earlier
   // steps. When no `index` is provided we fall back to deduping by serialized
@@ -143,15 +178,29 @@ export async function streamCompound(
         if (!line.startsWith("data: ")) continue;
         const data = line.slice(6).trim();
         if (data === "[DONE]") continue;
+        eventCount++;
+        lastRawEvent = data;
         try {
           const json = JSON.parse(data);
           const choice = json.choices?.[0];
           if (!choice) continue;
 
+          if (typeof choice.finish_reason === "string") {
+            finishReason = choice.finish_reason;
+          }
+
           const delta = choice.delta;
           if (delta && typeof delta.content === "string" && delta.content) {
             fullText += delta.content;
             options.onChunk?.(delta.content);
+          }
+          // Some compound responses include the final answer on the message
+          // object (non-delta) at the end of the stream. Capture it once if
+          // we have not already streamed equivalent content via deltas.
+          const messageContent = choice.message?.content;
+          if (typeof messageContent === "string" && messageContent && !fullText) {
+            fullText = messageContent;
+            options.onChunk?.(messageContent);
           }
           mergeTools(delta?.executed_tools);
           mergeTools(choice.message?.executed_tools);
@@ -160,6 +209,13 @@ export async function streamCompound(
         }
       }
     }
+  }
+
+  console.log(
+    `[compound] stream done: ${eventCount} events, ${fullText.length} content chars, finish_reason=${finishReason}`,
+  );
+  if (fullText.length === 0) {
+    console.log("[compound] last raw event:", lastRawEvent.slice(0, 800));
   }
 
   const executedTools = Array.from(toolsByIndex.values()).sort(
