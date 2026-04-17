@@ -29,15 +29,15 @@ export const OPENAI_MODELS = {
 } as const;
 
 export const ANTHROPIC_MODELS = {
-  orchestrator: "claude-3-haiku-20240307",
-  fast: "claude-3-haiku-20240307",
-  powerful: "claude-3-5-sonnet-20241022",
+  orchestrator: "claude-haiku-4-5-20251001",
+  fast: "claude-haiku-4-5-20251001",
+  powerful: "claude-sonnet-4-6",
 } as const;
 
 export const OPENROUTER_MODELS = {
-  orchestrator: "anthropic/claude-3-haiku",
-  fast: "anthropic/claude-3-haiku",
-  powerful: "anthropic/claude-3.5-sonnet",
+  orchestrator: "anthropic/claude-haiku-4-5",
+  fast: "anthropic/claude-haiku-4-5",
+  powerful: "anthropic/claude-sonnet-4-5",
 } as const;
 
 export const NVIDIA_MODELS = {
@@ -129,9 +129,9 @@ export const PROVIDER_MODEL_OPTIONS: Record<BuiltInProvider, string[]> = {
   cerebras: ["llama-3.1-8b", "llama-3.3-70b", "llama-3.2-90b"],
   gemini: ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-2.0-pro", "gemini-1.5-pro", "gemini-1.5-flash"],
   openai: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
-  anthropic: ["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-opus-20240229", "claude-3-sonnet-20240229", "claude-3-haiku-20240307"],
+  anthropic: ["claude-sonnet-4-6", "claude-opus-4-7", "claude-haiku-4-5-20251001", "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022"],
   openrouter: [
-    "anthropic/claude-3.5-sonnet", "anthropic/claude-3-haiku", 
+    "anthropic/claude-sonnet-4-5", "anthropic/claude-haiku-4-5",
     "openai/gpt-4o", "openai/gpt-4o-mini",
     "meta-llama/llama-3.1-70b-instruct", "meta-llama/llama-3.1-8b-instruct",
     "google/gemini-pro-1.5", "mistralai/mixtral-8x7b-instruct"

@@ -436,6 +436,7 @@ export function resetProviderCache() {
   _geminiLoaded = false;
   _customLoaded = false;
   _providerCache.clear();
+  _rateLimitedUntil.clear();
 }
 
 // ---------------------------------------------------------------------------

@@ -338,6 +338,15 @@ loadConfig()
       }
 
       const MAX_TOOL_ITERS = 3;
+      // Read tools may need a follow-up action (e.g. search → draft email).
+      // Write/mutation tools are terminal — no point re-orchestrating after them.
+      const READ_TOOLS = new Set([
+        "search.query", "gmail.listEmails", "gmail.readEmail",
+        "calendar.listEvents", "calendar.checkAvailability",
+        "memory.query", "files.searchFiles", "files.readFile",
+        "files.queryDocument", "resources.find", "resources.listManifests",
+        "x.getTimeline", "x.getMentions", "x.searchTweets",
+      ]);
       let toolContext = "";
       const combinedProfile = [profileContent, startupMemory].filter(Boolean).join("\n\n---\n\n");
 
@@ -483,12 +492,15 @@ loadConfig()
 
         toolContext = toolContext ? toolContext + "\n\n" + iterContext : iterContext;
 
-        // Re-orchestrate for potential chaining (unless we've hit the last iteration)
-        if (iter < MAX_TOOL_ITERS - 1) {
+        // Only re-orchestrate after read tools that may need a follow-up action.
+        // Write/mutation tools are terminal — skip the extra LLM call.
+        if (READ_TOOLS.has(planTool) && iter < MAX_TOOL_ITERS - 1) {
           lastPlan = await orchestrate(text, history, config.persona, combinedProfile, registryRef.current, iterContext, config.providerPriority, config.rateLimitConfig, config.modelSelection).catch((e) => {
             console.error("Re-orchestration failed, stopping chain:", e);
             return { model: "fast" as const, tool: null, params: null, intent: "direct response" };
           });
+        } else {
+          lastPlan = { ...lastPlan, tool: null };
         }
       }
 

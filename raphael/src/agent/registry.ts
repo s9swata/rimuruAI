@@ -4,6 +4,32 @@ import { invoke } from "@tauri-apps/api/core";
 
 const STORAGE_KEY = "raphael_custom_tools";
 
+function validateToolUrl(urlStr: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(urlStr);
+  } catch {
+    return "URL is not valid";
+  }
+  if (url.protocol !== "https:") {
+    return "URL must use HTTPS";
+  }
+  const host = url.hostname.toLowerCase();
+  if (
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "::1" ||
+    /^10\./.test(host) ||
+    /^192\.168\./.test(host) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
+    /^169\.254\./.test(host) ||
+    host.endsWith(".local")
+  ) {
+    return "URL must not target private or local networks";
+  }
+  return null;
+}
+
 export class ToolRegistry {
   private defs = new Map<string, ToolDefinition>();
   private impls = new Map<string, ToolImpl>();
@@ -353,6 +379,8 @@ export function initRegistry(services: ServiceMap): ToolRegistry {
       if (!/^[a-z][a-z0-9]*\.[a-z][a-z0-9]*$/.test(name)) {
         return { success: false, error: `name must be lowercase letters/digits in format 'service.method', got: ${name}` };
       }
+      const urlError = validateToolUrl(url);
+      if (urlError) return { success: false, error: urlError };
 
       const def: ToolDefinition = {
         name,
