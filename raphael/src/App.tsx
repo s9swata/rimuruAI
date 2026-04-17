@@ -267,7 +267,7 @@ loadConfig()
         const researchDirective = `\n\n## Research mode\nYou have web_search and visit_website tools. Use them aggressively:\n- Run multiple search queries with different phrasings to triangulate facts\n- For any specific version, changelog, release, or claim — visit_website on the primary source (official docs, GitHub release page, vendor blog) instead of relying on snippets\n- Cross-check at least two independent sources before stating a fact\n- Do not answer from memory when the user asks about a specific version, date, or recent event — always search and visit\n- Cite sources inline as [1], [2], … and list URLs at the end`;
         const systemPromptR = baseSystem + researchDirective;
         try {
-          const { executed_tools } = await streamCompound(
+          const { text: replyText, executed_tools } = await streamCompound(
             [
               { role: "system", content: systemPromptR },
               ...history.slice(-4),
@@ -283,6 +283,16 @@ loadConfig()
             },
           );
           chatDispatch({ type: FINISH_COMPOUND, id: compoundCardId, steps: executed_tools });
+          // Compound sometimes finishes the agentic loop without streaming a
+          // final assistant message (e.g. when tool output dominates the
+          // budget). Surface a graceful fallback so the user is not left with
+          // an empty bubble.
+          if (!replyText.trim()) {
+            const summary = executed_tools.length
+              ? `Compound ran ${executed_tools.length} tool call${executed_tools.length === 1 ? "" : "s"} but returned no final message. See the steps above for what was gathered.`
+              : `Compound returned no response. Try rephrasing or disabling Research mode.`;
+            chatDispatch({ type: "APPEND_STREAM", id: replyId, chunk: summary });
+          }
         } catch (e) {
           console.error("Compound error:", e);
           chatDispatch({ type: "REMOVE", id: replyId });

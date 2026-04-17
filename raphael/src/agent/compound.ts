@@ -93,20 +93,32 @@ export async function streamCompound(
   let fullText = "";
   // Merge tool entries by index across stream chunks. Streaming responses send
   // each step incrementally; replacing the array on every event drops earlier
-  // steps, leaving only the last one visible in the UI.
+  // steps. When no `index` is provided we fall back to deduping by serialized
+  // entry content so the same bare `{type: "browser_automation"}` chunk
+  // arriving N times does not produce N empty UI rows.
   const toolsByIndex = new Map<number, ExecutedTool>();
-  let nextSyntheticIndex = 0;
+  const seenContentKeys = new Set<string>();
+  let nextSyntheticIndex = 1_000_000;
 
   function mergeTools(entries: unknown) {
     if (!Array.isArray(entries)) return;
     for (const raw of entries) {
       if (!raw || typeof raw !== "object") continue;
       const entry = raw as Partial<ExecutedTool> & { index?: number };
-      const idx = typeof entry.index === "number" ? entry.index : nextSyntheticIndex++;
+
+      let idx: number;
+      if (typeof entry.index === "number") {
+        idx = entry.index;
+      } else {
+        const key = JSON.stringify(entry);
+        if (seenContentKeys.has(key)) continue;
+        seenContentKeys.add(key);
+        idx = nextSyntheticIndex++;
+      }
+
       const prev = toolsByIndex.get(idx) ?? ({ index: idx, type: "" } as ExecutedTool);
       const merged: ExecutedTool = { ...prev, ...entry, index: idx } as ExecutedTool;
 
-      // Concatenate streamed string fields (arguments / output) instead of replace
       if (typeof prev.arguments === "string" && typeof entry.arguments === "string") {
         merged.arguments = prev.arguments + entry.arguments;
       }

@@ -51,10 +51,13 @@ export const GROQ_COMPOUND_MODELS = {
   mini: "groq/compound-mini",
 } as const;
 
+// browser_automation is intentionally NOT enabled by default. It can spawn up
+// to 10 browsers in parallel and frequently leaves the run with no final text
+// content streamed back to the client. Keep this list focused on tools whose
+// output cleanly returns to the model for synthesis.
 export const DEFAULT_COMPOUND_TOOLS = [
   "web_search",
   "visit_website",
-  "browser_automation",
 ];
 
 export type ModelTier = keyof typeof GROQ_MODELS;
