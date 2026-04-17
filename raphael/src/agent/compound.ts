@@ -91,7 +91,31 @@ export async function streamCompound(
   const decoder = new TextDecoder();
   let buffer = "";
   let fullText = "";
-  let executedTools: ExecutedTool[] = [];
+  // Merge tool entries by index across stream chunks. Streaming responses send
+  // each step incrementally; replacing the array on every event drops earlier
+  // steps, leaving only the last one visible in the UI.
+  const toolsByIndex = new Map<number, ExecutedTool>();
+  let nextSyntheticIndex = 0;
+
+  function mergeTools(entries: unknown) {
+    if (!Array.isArray(entries)) return;
+    for (const raw of entries) {
+      if (!raw || typeof raw !== "object") continue;
+      const entry = raw as Partial<ExecutedTool> & { index?: number };
+      const idx = typeof entry.index === "number" ? entry.index : nextSyntheticIndex++;
+      const prev = toolsByIndex.get(idx) ?? ({ index: idx, type: "" } as ExecutedTool);
+      const merged: ExecutedTool = { ...prev, ...entry, index: idx } as ExecutedTool;
+
+      // Concatenate streamed string fields (arguments / output) instead of replace
+      if (typeof prev.arguments === "string" && typeof entry.arguments === "string") {
+        merged.arguments = prev.arguments + entry.arguments;
+      }
+      if (typeof prev.output === "string" && typeof entry.output === "string") {
+        merged.output = prev.output + entry.output;
+      }
+      toolsByIndex.set(idx, merged);
+    }
+  }
 
   while (true) {
     const { done, value } = await reader.read();
@@ -117,20 +141,18 @@ export async function streamCompound(
             fullText += delta.content;
             options.onChunk?.(delta.content);
           }
-          // executed_tools may surface on delta or message
-          if (delta && Array.isArray(delta.executed_tools)) {
-            executedTools = delta.executed_tools;
-          }
-          const message = choice.message;
-          if (message && Array.isArray(message.executed_tools)) {
-            executedTools = message.executed_tools;
-          }
+          mergeTools(delta?.executed_tools);
+          mergeTools(choice.message?.executed_tools);
         } catch (e) {
           console.warn("[compound] SSE parse error", e, data.slice(0, 200));
         }
       }
     }
   }
+
+  const executedTools = Array.from(toolsByIndex.values()).sort(
+    (a, b) => (a.index ?? 0) - (b.index ?? 0),
+  );
 
   options.onExecutedTools?.(executedTools);
   options.onDone?.();

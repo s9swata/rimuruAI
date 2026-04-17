@@ -263,7 +263,9 @@ loadConfig()
         });
         chatDispatch({ type: "ADD_MESSAGE", msg: { id: replyId, role: "assistant", content: "", streaming: true } });
 
-        const systemPromptR = buildSystemPrompt("powerful", config.persona, combinedProfileR);
+        const baseSystem = buildSystemPrompt("powerful", config.persona, combinedProfileR);
+        const researchDirective = `\n\n## Research mode\nYou have web_search and visit_website tools. Use them aggressively:\n- Run multiple search queries with different phrasings to triangulate facts\n- For any specific version, changelog, release, or claim — visit_website on the primary source (official docs, GitHub release page, vendor blog) instead of relying on snippets\n- Cross-check at least two independent sources before stating a fact\n- Do not answer from memory when the user asks about a specific version, date, or recent event — always search and visit\n- Cite sources inline as [1], [2], … and list URLs at the end`;
+        const systemPromptR = baseSystem + researchDirective;
         try {
           const { executed_tools } = await streamCompound(
             [
@@ -275,6 +277,9 @@ loadConfig()
               model: GROQ_COMPOUND_MODELS.full,
               onChunk: (chunk) => chatDispatch({ type: "APPEND_STREAM", id: replyId, chunk }),
               onDone: () => chatDispatch({ type: "FINISH_STREAM", id: replyId }),
+              onExecutedTools: (steps) => {
+                console.log(`[App] compound executed_tools: ${steps.length} step(s)`, steps.map(s => s.type));
+              },
             },
           );
           chatDispatch({ type: FINISH_COMPOUND, id: compoundCardId, steps: executed_tools });
