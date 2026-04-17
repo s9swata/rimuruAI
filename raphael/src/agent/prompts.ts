@@ -169,7 +169,13 @@ export function buildSystemPrompt(
         ? toolList
         : "(no tools registered)";
 
+    const now = new Date();
+    const todayStr = now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+
     return `You are Raphael — an agent, not an assistant. Your job: analyze the user's message, then decide (1) which model tier to use and (2) which single tool to call, if any. Respond with ONLY valid JSON — no explanation, no markdown.
+
+Today's date: ${todayStr}
+When the user says "today", "tonight", "this week", "now", or any relative date, resolve it to the actual date above before constructing tool params.
 
 Available tools:
 ${tools}
@@ -273,8 +279,10 @@ ${AGENTS}`;
     ? `\n\nUser Profile Context:\n${profileContext}`
     : "";
 
+  const todayLine = `\nToday's date: ${new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}`;
+
   if (tier === "fast") {
-    return `You are Raphael — a personal AI agent. ${toneLine} ${verbLine}${toolResultGuidance}${extendedProfile}`;
+    return `You are Raphael — a personal AI agent. ${toneLine} ${verbLine}${todayLine}${toolResultGuidance}${extendedProfile}`;
   }
   // powerful gets full identity
   return `${identityBlock}
@@ -282,5 +290,6 @@ ${AGENTS}`;
 ${toneLine}
 
 ${verbLine}
+${todayLine}
 ${toolResultGuidance}${extendedProfile}`;
 }
