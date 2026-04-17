@@ -33,6 +33,7 @@ function validateToolUrl(urlStr: string): string | null {
 export class ToolRegistry {
   private defs = new Map<string, ToolDefinition>();
   private impls = new Map<string, ToolImpl>();
+  private _promptCache: string | null = null;
 
   /**
    * Register a tool definition.
@@ -42,6 +43,12 @@ export class ToolRegistry {
   register(def: ToolDefinition, impl?: ToolImpl): void {
     this.defs.set(def.name, def);
     if (impl) this.impls.set(def.name, impl);
+    this._promptCache = null;
+  }
+
+  /** Invalidate the cached prompt string (e.g. after bulk mutations). */
+  invalidatePromptCache(): void {
+    this._promptCache = null;
   }
 
   /** Get a tool definition by name. Returns undefined if not registered. */
